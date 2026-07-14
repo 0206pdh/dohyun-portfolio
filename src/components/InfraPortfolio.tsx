@@ -69,13 +69,13 @@ function ArchitectureFigures() {
       <figure>
         <figcaption>전체 아키텍처 · AWS / EKS / 데이터·관측성 계층</figcaption>
         <div className="architecture-image overall-architecture">
-          <Image src="/images/utterai-architecture.png" alt="UtterAI 전체 AWS 아키텍처" width={1951} height={1391} />
+          <Image src="/images/utterai-architecture.png" alt="UtterAI 전체 AWS 아키텍처" width={1210} height={830} />
         </div>
       </figure>
       <figure>
         <figcaption>EKS Cluster · VPC, subnet, node provisioning, platform controllers</figcaption>
         <div className="architecture-image">
-          <Image src="/images/eks-cluster-architecture.png" alt="UtterAI EKS 클러스터 아키텍처" width={1660} height={780} />
+          <Image src="/images/eks-cluster-architecture.png" alt="UtterAI EKS 클러스터 아키텍처" width={2100} height={1020} />
         </div>
       </figure>
     </div>
