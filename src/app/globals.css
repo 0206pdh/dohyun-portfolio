@@ -44,7 +44,8 @@ a { color: inherit; }
 .profile-details dt { color: #94a3b8; }
 .profile-details dd { margin: 0; color: #475569; }
 .credential-list { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
-.credential-list li { display: flex; justify-content: space-between; gap: 10px; color: #475569; font-size: 12px; }
+.credential-list li { display: flex; justify-content: space-between; gap: 10px; color: #475569; font-size: 12px; word-break: keep-all; }
+.credential-list li strong { color: var(--ink); font-weight: 800; white-space: nowrap; }
 .credential-list small { color: #94a3b8; white-space: nowrap; }
 .section-title { margin-bottom: 30px; }
 .section-title h2 { margin: 5px 0 0; font-size: clamp(22px, 3vw, 31px); line-height: 1.2; letter-spacing: -.06em; }
