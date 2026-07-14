@@ -1,8 +1,9 @@
+import Image from "next/image";
 import { profile } from "@/data/profile";
 
 const stack = [
-  "AWS", "Terraform", "EKS", "Kubernetes", "Kustomize", "Argo CD",
-  "Karpenter", "KEDA", "SQS", "Prometheus", "Grafana", "OpenTelemetry",
+  "AWS · EKS", "Terraform", "Kubernetes", "Karpenter · KEDA",
+  "Argo CD", "Prometheus · Grafana",
 ];
 
 const responsibilities = [
@@ -69,20 +70,21 @@ function SectionTitle({ eyebrow, title }: { eyebrow: string; title: string }) {
   return <div className="section-title"><span>{eyebrow}</span><h2>{title}</h2></div>;
 }
 
-function Architecture() {
+function ArchitectureFigures() {
   return (
-    <div className="architecture" aria-label="UtterAI 인프라 흐름">
-      <div className="architecture-row">
-        <div className="architecture-node external">User</div><div className="architecture-arrow">→</div>
-        <div className="architecture-node edge">CloudFront<br />/ ALB</div><div className="architecture-arrow">→</div>
-        <div className="architecture-node cluster">EKS API</div>
-      </div>
-      <div className="architecture-branch">
-        <div className="architecture-line" /><div className="architecture-node queue">SQS<br /><small>analysis queue</small></div>
-        <div className="architecture-arrow">→</div><div className="architecture-node worker">KEDA<br /><small>Pod 0 ↔ N</small></div>
-        <div className="architecture-arrow">→</div><div className="architecture-node nodepool">Karpenter<br /><small>NodeClaim</small></div>
-      </div>
-      <div className="architecture-services"><span>CPU Worker</span><span>GPU Worker</span><span>Batch Worker</span><span>Aurora · Redis · S3</span></div>
+    <div className="architecture-figures">
+      <figure>
+        <figcaption>전체 아키텍처 · AWS / EKS / 데이터·관측성 계층</figcaption>
+        <div className="architecture-image overall-architecture">
+          <Image src="/images/utterai-architecture.png" alt="UtterAI 전체 AWS 아키텍처" width={1951} height={1391} />
+        </div>
+      </figure>
+      <figure>
+        <figcaption>EKS Cluster · VPC, subnet, node provisioning, platform controllers</figcaption>
+        <div className="architecture-image">
+          <Image src="/images/eks-cluster-architecture.png" alt="UtterAI EKS 클러스터 아키텍처" width={1660} height={780} />
+        </div>
+      </figure>
     </div>
   );
 }
@@ -107,6 +109,23 @@ export function InfraPortfolio() {
         <div className="header-contact"><a href={`mailto:${profile.contact.email}`}>{profile.contact.email}</a><a href={profile.contact.github} target="_blank" rel="noreferrer">GitHub ↗</a></div>
       </header>
 
+      <section className="profile-sheet">
+        <div className="profile-intro">
+          <Image src={profile.avatarUrl} alt={profile.name} width={72} height={72} className="profile-avatar" priority />
+          <div>
+            <p className="profile-label">CLOUD ENGINEER</p>
+            <h2>{profile.name}</h2>
+            <p>{profile.tagline}</p>
+          </div>
+          <div className="profile-links"><a href={`mailto:${profile.contact.email}`}>{profile.contact.email}</a><a href={profile.contact.github} target="_blank" rel="noreferrer">github.com/0206pdh ↗</a></div>
+        </div>
+        <div className="profile-details">
+          <div><h3>기본 정보</h3><dl><div><dt>생년월일</dt><dd>{profile.birthDate}</dd></div><div><dt>이메일</dt><dd>{profile.contact.email}</dd></div></dl></div>
+          <div><h3>학력 · 교육 이수</h3><dl>{profile.education.map((item) => <div key={item.school}><dt>학력</dt><dd>{item.school} · {item.degree} ({item.status})</dd></div>)}{profile.training.map((item) => <div key={item.name}><dt>교육</dt><dd>{item.name} ({item.status})</dd></div>)}</dl></div>
+          <div><h3>자격증 · 어학</h3><ul className="credential-list">{profile.certificates.map((item) => <li key={item.name}><span>{item.name}</span><small>{item.status} · {item.date}</small></li>)}</ul></div>
+        </div>
+      </section>
+
       <section className="project-sheet hero-sheet">
         <div className="project-topline">
           <div><p className="project-label">AWS 13기 최종 프로젝트 · UtterAI</p><h2>AI 음성 분석 플랫폼의<br /><em>운영 가능한 EKS</em> 만들기</h2><p className="project-period">진행기간 · 2026.05 — 2026.07</p></div>
@@ -121,7 +140,7 @@ export function InfraPortfolio() {
 
       <section className="project-sheet">
         <SectionTitle eyebrow="01 · Role & Architecture" title="구조를 만들고, 흐름을 검증했습니다" />
-        <div className="two-column role-grid"><div><h3 className="subheading">주요업무 및 상세 역할</h3><ul className="check-list">{responsibilities.map((item) => <li key={item}>{item}</li>)}</ul></div><div><h3 className="subheading">서비스 흐름</h3><Architecture /></div></div>
+        <div className="role-layout"><div><h3 className="subheading">주요업무 및 상세 역할</h3><ul className="check-list">{responsibilities.map((item) => <li key={item}>{item}</li>)}</ul></div><ArchitectureFigures /></div>
         <div className="principles"><div><b>01</b><span>데이터 플레인</span><p>API·Worker를 workload와 리소스 요구사항에 맞게 분리</p></div><div><b>02</b><span>스케일 플레인</span><p>KEDA는 Pod, Karpenter는 Node를 책임지도록 경계 설정</p></div><div><b>03</b><span>컨트롤 플레인</span><p>Terraform과 Argo CD로 변경을 추적하고 재현</p></div></div>
       </section>
 
