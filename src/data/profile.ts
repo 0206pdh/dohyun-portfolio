@@ -4,7 +4,7 @@ export const profile = {
   tagline: "인프라 구성 비용과 운영 최적화를 함께 고민하는 클라우드 엔지니어입니다.",
   bio: "Terraform으로 인프라를 코드로 관리하고, 구성 비용과 운영 효율을 함께 최적화하는 클라우드 엔지니어입니다. 자동확장, 관측성, IaC 자동화를 직접 설계하고 운영하며 장애 원인을 기록 가능한 개선안으로 바꾸고 있습니다.",
   birthDate: "2000.02.06",
-  avatarUrl: "/images/profile.svg",
+  avatarUrl: "/images/profile.png",
   contact: {
     email: "0206pdh@naver.com",
     github: "https://github.com/0206pdh",
