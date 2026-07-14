@@ -14,13 +14,6 @@ const responsibilities = [
   "Prometheus·Grafana·OpenTelemetry·Phoenix를 연결해 노드, 큐, 워커, trace를 함께 관측",
 ];
 
-const metrics = [
-  { value: "3.75s", label: "ready_100 p50 단축", detail: "Karpenter 54.126s vs CA 57.879s" },
-  { value: "58%", label: "일일 EC2 비용 절감", detail: "$28.73/day → $12.02/day" },
-  { value: "3~5분", label: "GPU 콜드스타트", detail: "EFS 모델 캐싱 전 5~10분" },
-  { value: "50GB", label: "Worker 디스크 기준", detail: "기본 20GB에서 증설" },
-];
-
 const troubleshooting = [
   {
     number: "01", title: "CA + HPA에서 KEDA + Karpenter로 전환",
@@ -129,7 +122,7 @@ export function InfraPortfolio() {
       <section className="project-sheet hero-sheet">
         <div className="project-topline">
           <div><p className="project-label">AWS 13기 최종 프로젝트 · UtterAI</p><h2>AI 음성 분석 플랫폼의<br /><em>운영 가능한 EKS</em> 만들기</h2><p className="project-period">진행기간 · 2026.05 — 2026.07</p></div>
-          <div className="role-panel"><p>담당 영역</p><strong>Cloud Infra / Kubernetes / Terraform</strong><span>Dev · Prod · Tokyo 환경을 같은 운영 원칙으로 확장</span></div>
+          <div className="role-panel"><p>담당 영역</p><strong>Cloud Infra / Kubernetes / Terraform</strong><span>Dev · Prod 환경을 같은 운영 원칙으로 확장</span></div>
         </div>
         <div className="project-summary">
           <div><h3>프로젝트 목적</h3><p>음성 업로드부터 CPU/GPU 분석, 리포트 생성까지 이어지는 비동기 파이프라인을 AWS와 Kubernetes 위에서 안정적으로 운영하기 위한 인프라 저장소입니다. Terraform으로 기반 리소스를 재사용하고, Kustomize와 Argo CD로 환경별 차이를 선언적으로 관리했습니다.</p></div>
@@ -141,23 +134,9 @@ export function InfraPortfolio() {
       <section className="project-sheet">
         <SectionTitle eyebrow="01 · Role & Architecture" title="구조를 만들고, 흐름을 검증했습니다" />
         <div className="role-layout"><div><h3 className="subheading">주요업무 및 상세 역할</h3><ul className="check-list">{responsibilities.map((item) => <li key={item}>{item}</li>)}</ul></div><ArchitectureFigures /></div>
-        <div className="principles"><div><b>01</b><span>데이터 플레인</span><p>API·Worker를 workload와 리소스 요구사항에 맞게 분리</p></div><div><b>02</b><span>스케일 플레인</span><p>KEDA는 Pod, Karpenter는 Node를 책임지도록 경계 설정</p></div><div><b>03</b><span>컨트롤 플레인</span><p>Terraform과 Argo CD로 변경을 추적하고 재현</p></div></div>
       </section>
 
-      <section className="project-sheet metric-sheet">
-        <SectionTitle eyebrow="02 · Result" title="측정 가능한 결과를 남겼습니다" />
-        <div className="metric-grid">{metrics.map((metric) => <div className="metric-card" key={metric.label}><strong>{metric.value}</strong><span>{metric.label}</span><small>{metric.detail}</small></div>)}</div>
-        <div className="comparison-note"><div><span className="note-label">Autoscaling experiment</span><h3>9개 replica 부하 · 각 10회</h3><p>ready_100 기준 Karpenter p50 54.126s / p95 69.056s, CA p50 57.879s / p95 68.055s</p></div><div className="bar-comparison" aria-label="ready_100 p50 비교"><div><span>CA + HPA</span><i style={{ width: "82%" }} /><b>57.879s</b></div><div><span>KEDA + Karpenter</span><i style={{ width: "76%" }} /><b>54.126s</b></div></div></div>
-        <small className="evidence-line">수치 근거 · `ca_vs_karpenter_fair_comparison.csv`, `utterai-eks.pdf`, 2026-07-06 실험 결과</small>
-      </section>
-
-      <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="03 · Troubleshooting" title="장애를 원인 단위로 쪼개고 재발을 막았습니다" /><div className="troubleshooting-grid">{troubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
-
-      <section className="project-sheet reflection-sheet">
-        <SectionTitle eyebrow="04 · Takeaway" title="운영은 설정값보다 경계의 문제였습니다" />
-        <div className="reflection-grid"><div className="quote-block"><p>“SQS가 얼마나 쌓였는가”와<br /><em>“노드가 얼마나 빨리 준비되는가”</em>를<br />같은 흐름으로 관측해야 했습니다.</p></div><div className="reflection-copy"><p>이번 프로젝트에서 가장 크게 배운 점은 Kubernetes 리소스 하나의 문제가 실제로는 Terraform state, AWS 네트워크, KEDA trigger, Karpenter lifecycle, 애플리케이션의 SQS 처리 방식까지 이어진다는 사실이었습니다.</p><p>그래서 해결책을 클러스터의 임시 patch로 끝내지 않고, 변수·manifest·runbook·실험 결과로 다시 남겼습니다. 다음 환경에서도 같은 장애를 빠르게 재현하고 설명할 수 있는 인프라를 만드는 것이 목표입니다.</p></div></div>
-        <div className="closing-links"><a href="https://github.com/UtterAI-aws13/UtterAI_Infra" target="_blank" rel="noreferrer">UtterAI_Infra GitHub ↗</a><a href={`mailto:${profile.contact.email}`}>함께 이야기하기 ↗</a></div>
-      </section>
+      <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="02 · Troubleshooting" title="장애를 원인 단위로 쪼개고 재발을 막았습니다" /><div className="troubleshooting-grid">{troubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
       <footer className="portfolio-footer"><span>DoHyun · Cloud Infrastructure Engineer</span><span>© {new Date().getFullYear()}</span></footer>
     </main>
   );
