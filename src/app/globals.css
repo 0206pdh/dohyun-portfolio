@@ -70,8 +70,8 @@ a { color: inherit; }
 .architecture-figures figcaption { margin-bottom: 8px; color: var(--accent); font-size: 12px; font-weight: 800; }
 .architecture-image { overflow: hidden; border: 1px solid #cbd5e1; border-radius: 5px; background: #fff; }
 .architecture-image img { display: block; width: 100%; height: auto; }
-.overall-architecture { max-height: 620px; overflow: auto; }
-.overall-architecture img { min-width: 880px; }
+.overall-architecture { background: #fff; }
+.overall-architecture img { min-width: 0; }
 .principles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; border-top: 1px solid var(--line); margin-top: 42px; padding-top: 26px; }
 .principles div { display: grid; grid-template-columns: 30px 1fr; column-gap: 10px; }
 .principles b { color: var(--orange); font-size: 12px; }
@@ -144,7 +144,7 @@ a { color: inherit; }
   .architecture-node { min-width: 67px; padding: 8px 4px; font-size: 10px; }
   .architecture-branch { padding-left: 8px; }
   .architecture-services { margin-left: 8px; }
-  .overall-architecture img { min-width: 680px; }
+  .overall-architecture img { min-width: 0; }
   .bar-comparison div { grid-template-columns: 100px 1fr 52px; gap: 6px; font-size: 10px; }
   .closing-links { flex-direction: column; gap: 9px; }
   .portfolio-footer { font-size: 10px; }
