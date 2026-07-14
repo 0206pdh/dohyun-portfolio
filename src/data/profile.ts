@@ -1,8 +1,8 @@
 export const profile = {
-  name: "DoHyun",
+  name: "Dohyun Park",
   title: "Cloud Engineer",
-  tagline: "AWS와 Kubernetes 위에서 안정적으로 돌아가는 인프라를 만듭니다.",
-  bio: "Terraform으로 인프라를 코드로 관리하고, EKS 위에서 서비스를 운영하는 것에 관심이 많은 클라우드 엔지니어 지망생입니다. 오토스케일링, 관측성(Observability), IaC 자동화를 직접 만들어보며 실전 감각을 쌓고 있습니다.",
+  tagline: "인프라 구성 비용과 운영 최적화를 함께 고민하는 클라우드 엔지니어입니다.",
+  bio: "Terraform으로 인프라를 코드로 관리하고, 구성 비용과 운영 효율을 함께 최적화하는 클라우드 엔지니어입니다. 자동확장, 관측성, IaC 자동화를 직접 설계하고 운영하며 장애 원인을 기록 가능한 개선안으로 바꾸고 있습니다.",
   birthDate: "2000.02.06",
   avatarUrl: "/images/profile.svg",
   contact: {
@@ -11,16 +11,27 @@ export const profile = {
   },
   education: [
     {
+      school: "중산고등학교",
+      degree: "",
+      status: "졸업",
+      period: "2015.03 - 2018.02",
+    },
+    {
       school: "광운대학교",
       degree: "컴퓨터정보공학부",
       status: "졸업",
+      period: "2020.03 - 2026.02",
     },
   ],
   training: [
     {
       name: "AWS Cloud School",
       status: "수료",
+      period: "2025.12 - 2026.07",
     },
+  ],
+  awards: [
+    "한국전파진흥협회 · AWS Korea 주관 최종 프로젝트 최우수상",
   ],
   certificates: [
     {

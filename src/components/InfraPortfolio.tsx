@@ -98,7 +98,7 @@ export function InfraPortfolio() {
   return (
     <main className="portfolio-shell">
       <header className="portfolio-header">
-        <div><p className="portfolio-kicker">CLOUD INFRASTRUCTURE PORTFOLIO</p><h1>DoHyun, Cloud Infra Portfolio</h1></div>
+        <div><p className="portfolio-kicker">CLOUD INFRASTRUCTURE PORTFOLIO</p><h1>DoHyun, Cloud Engineer</h1></div>
         <div className="header-contact"><a href={`mailto:${profile.contact.email}`}>{profile.contact.email}</a><a href={profile.contact.github} target="_blank" rel="noreferrer">GitHub ↗</a></div>
       </header>
 
@@ -114,14 +114,15 @@ export function InfraPortfolio() {
         </div>
         <div className="profile-details">
           <div><h3>기본 정보</h3><dl><div><dt>생년월일</dt><dd>{profile.birthDate}</dd></div><div><dt>이메일</dt><dd>{profile.contact.email}</dd></div></dl></div>
-          <div><h3>학력 · 교육 이수</h3><dl>{profile.education.map((item) => <div key={item.school}><dt>학력</dt><dd>{item.school} · {item.degree} ({item.status})</dd></div>)}{profile.training.map((item) => <div key={item.name}><dt>교육</dt><dd>{item.name} ({item.status})</dd></div>)}</dl></div>
+          <div><h3>학력 · 교육 이수</h3><dl>{profile.education.map((item) => <div key={item.school}><dt>학력</dt><dd>{item.school}{item.degree && ` · ${item.degree}`} ({item.period} · {item.status})</dd></div>)}{profile.training.map((item) => <div key={item.name}><dt>교육</dt><dd>{item.name} ({item.period} · {item.status})</dd></div>)}</dl></div>
           <div><h3>자격증 · 어학</h3><ul className="credential-list">{profile.certificates.map((item) => <li key={item.name}><span>{item.name}</span><small>{item.status} · {item.date}</small></li>)}</ul></div>
+          <div><h3>수상이력</h3><ul className="credential-list">{profile.awards.map((award) => <li key={award}><span>{award}</span></li>)}</ul></div>
         </div>
       </section>
 
       <section className="project-sheet hero-sheet">
         <div className="project-topline">
-          <div><p className="project-label">AWS 13기 최종 프로젝트 · UtterAI</p><h2>AI 음성 분석 플랫폼의<br /><em>운영 가능한 EKS</em> 만들기</h2><p className="project-period">진행기간 · 2026.05 — 2026.07</p></div>
+          <div><p className="project-label">AWS 13기 최종 프로젝트 · UtterAI</p><h2>AI 기반 언어 재활 임상 치료 보조 SaaS의<br /><em>운영 가능한 인프라</em> 만들기</h2><p className="project-period">진행기간 · 2026.05 — 2026.07</p></div>
           <div className="role-panel"><p>담당 영역</p><strong>Cloud Infra / Kubernetes / Terraform</strong><span>Dev · Prod 환경을 같은 운영 원칙으로 확장</span></div>
         </div>
         <div className="project-summary">
