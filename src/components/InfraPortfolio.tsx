@@ -26,7 +26,7 @@ const troubleshooting: TroubleshootingItem[] = [
   {
     number: "01", title: "CA + HPA에서 KEDA + Karpenter로 전환",
     problem: "CPU 임계치 기반 HPA는 SQS 적체를 늦게 감지하고, GPU 노드의 최소 용량을 유지해야 해 유휴 비용이 발생했습니다.",
-    action: "SQS queue depth를 KEDA trigger로 사용하고, 워크로드별 NodePool과 Karpenter를 연결했습니다. 부하 테스트는 9개 replica, CA 10회와 Karpenter 10회로 비교했습니다.",
+    action: "SQS queue depth를 KEDA trigger로 사용하고, 워크로드별 NodePool과 Karpenter를 연결했습니다. Karpenter는 NodeClaim으로 EC2를 직접 프로비저닝해, 기존 CA의 ASG 확장 방식(약 3~5분) 대비 노드 준비 시간을 약 60초로 단축했습니다.",
   },
   {
     number: "02", title: "GPU 콜드스타트와 SQS 메시지 유실 방지",
@@ -62,7 +62,7 @@ const troubleshooting: TroubleshootingItem[] = [
   {
     number: "08", title: "Public 노출 최소화와 워크로드 격리로 방어 계층 추가",
     problem: "EKS API 엔드포인트가 Public으로 열려 있었고, 네임스페이스 간 네트워크가 분리되지 않아 워크로드 하나가 뚫리면 클러스터 전체로 위험이 번질 수 있는 구조였습니다.",
-    action: "CloudFront에 AWSManagedRulesCommonRuleSet + IP 기반 RateLimit WAF를 Count 모드로 먼저 붙이고 Block으로 전환했습니다. 인증서 기반 AWS Client VPN으로 클러스터 접근 경로를 별도로 구축해 API 엔드포인트를 Private로 전환하기 전 단계로 검증하고 있습니다. 네임스페이스에는 VPC CNI NetworkPolicy로 default-deny 후 ALB→API→AI 서비스 등 필요한 트래픽만 허용했고, 모든 워크로드에 runAsNonRoot·seccompProfile·readOnlyRootFilesystem을 적용했습니다. Promtail과 OTel Collector에는 Authorization·Cookie·토큰을 로그·trace 저장 전에 지우는 redact 처리를 추가했습니다.",
+    action: "CloudFront에 AWSManagedRulesCommonRuleSet + IP 기반 RateLimit WAF를 Count 모드로 먼저 붙이고 Block으로 전환했습니다. 인증서 기반 AWS Client VPN으로 클러스터 접근 경로를 별도로 구축하고, EKS API 엔드포인트를 Private로 전환했습니다. 네임스페이스에는 VPC CNI NetworkPolicy로 default-deny 후 ALB→API→AI 서비스 등 필요한 트래픽만 허용했고, 모든 워크로드에 runAsNonRoot·seccompProfile·readOnlyRootFilesystem을 적용했습니다. Promtail과 OTel Collector에는 Authorization·Cookie·토큰을 로그·trace 저장 전에 지우는 redact 처리를 추가했습니다.",
   },
 ];
 
@@ -71,7 +71,7 @@ const cloudLayers = [
   { title: "Compute", detail: "EKS 위에 API·CPU Worker·GPU Worker·Batch를 NodePool 단위로 나누고, Karpenter가 워크로드 특성에 맞는 노드를 온디맨드로 프로비저닝합니다." },
   { title: "Data", detail: "Aurora/RDS가 정형 데이터를, ElastiCache Redis가 캐시·세션을, S3가 오디오·리포트 파일을 맡아 컴퓨트 계층과 상태를 분리했습니다." },
   { title: "Messaging", detail: "SQS 큐가 API와 Worker 사이를 비동기로 연결해, 분석 요청이 몰려도 API 응답성과 GPU 자원 사용을 독립적으로 조절할 수 있습니다." },
-  { title: "Security", detail: "네임스페이스별 IRSA로 IAM 권한을 최소 범위로 나누고, NetworkPolicy default-deny와 runAsNonRoot·readOnlyRootFilesystem으로 워크로드를 격리했습니다. CloudFront WAF와 Client VPN으로 외부 접근 경로를 통제하고, 로그·trace는 저장 전 redact 처리합니다." },
+  { title: "Security", detail: "네임스페이스별 IRSA로 IAM 권한을 최소 범위로 나누고, ESO(External Secrets Operator)로 시크릿을 코드베이스에서 분리해 관리합니다. NetworkPolicy default-deny와 runAsNonRoot·readOnlyRootFilesystem으로 워크로드를 격리했습니다. CloudFront WAF와 Client VPN·Private 엔드포인트로 외부 접근 경로를 통제하고, 로그·trace는 저장 전 redact 처리합니다." },
   { title: "Observability", detail: "Prometheus·Grafana·OpenTelemetry·Phoenix를 연결해 노드, 큐, 워커, trace를 하나의 관측 축에서 함께 확인합니다." },
   { title: "Delivery", detail: "Terraform이 VPC부터 EKS·RDS·SQS까지 기반 인프라를, Argo CD + Kustomize overlay가 애플리케이션 배포를 코드화해 dev/prod를 같은 원칙으로 운영합니다." },
 ];
