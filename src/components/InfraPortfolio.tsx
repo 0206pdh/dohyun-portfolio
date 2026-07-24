@@ -146,11 +146,11 @@ export function InfraPortfolio() {
 
       <section className="project-sheet hero-sheet">
         <div className="project-topline">
-          <div><p className="project-label">AWS 13기 최종 프로젝트 · UtterAI</p><h2>AI 기반 언어 재활 임상 치료 보조 SaaS의<br /><em>운영 가능한 인프라</em> 만들기</h2><p className="project-period">진행기간 · 2026.05 — 2026.07</p></div>
+          <div><p className="project-label">AWS 13기 최종 프로젝트 · UtterAI</p><h2>AI 기반 언어 재활 임상 치료 보조 SaaS</h2><p className="project-period">진행기간 · 2026.05 — 2026.07</p></div>
           <div className="role-panel"><p>담당 영역</p><strong>Cloud Infra / Kubernetes / Terraform</strong><span>Dev · Prod 환경을 같은 운영 원칙으로 확장</span></div>
         </div>
         <div className="project-summary">
-          <div><h3>프로젝트 목적</h3><p>음성 업로드부터 CPU/GPU 분석, 리포트 생성까지 이어지는 비동기 파이프라인을 AWS와 Kubernetes 위에서 안정적으로 운영하기 위한 인프라 저장소입니다. Terraform으로 기반 리소스를 재사용하고, Kustomize와 Argo CD로 환경별 차이를 선언적으로 관리했습니다.</p></div>
+          <div><h3>프로젝트 목적</h3><p>언어치료사는 40분 세션마다 녹음을 다시 들으며 전사하고 발화를 분석해 보고서로 정리하는 데 2시간 이상을 씁니다. 치료 효과를 측정하는 핵심 지표인 언어표본분석조차 52%가 시행되지 못하고, 시행하더라도 90%가 손으로 이뤄집니다. UtterAI는 녹음 업로드만으로 전사·지표 계산·SOAP 노트 초안까지 자동화해 이 부담을 줄이는 서비스입니다.</p></div>
         </div>
         <div className="stack-row"><span className="stack-title">기술 스택</span>{stack.map((item) => <span className="stack-chip" key={item.label}><Image src={item.icon} alt="" width={24} height={24} /><span>{item.label}</span></span>)}</div>
       </section>
