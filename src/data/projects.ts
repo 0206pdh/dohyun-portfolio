@@ -45,15 +45,16 @@ export const projects: Project[] = [
     id: "dockviz-cli",
     name: "dockviz-cli",
     period: "2026.03 - 2026.04",
-    category: "Dev Tool",
+    category: "Dev Tool / TUI",
     description:
-      "터미널에서 Docker 환경을 실시간으로 보여주는 대시보드입니다. 컨테이너 목록, CPU/메모리, 네트워크, 이벤트를 한 화면에서 갱신해 여러 docker 명령어를 오가지 않고도 상태를 파악할 수 있습니다.",
+      "Docker 데몬의 컨테이너·네트워크·이미지·이벤트를 하나의 터미널 화면에서 실시간으로 모니터링하고 제어하는 Go 기반 TUI 대시보드입니다. Docker SDK로 데이터를 수집하고 Bubble Tea의 TEA 구조로 화면과 입력을 처리하며, 데모 모드·원격 데몬·단일 바이너리 배포를 지원합니다.",
     highlights: [
-      "Bubble Tea 기반 TUI로 Containers/Networks/Images/Events 탭 전환",
-      "실시간 로그 스트리밍과 이벤트 타임라인으로 장애 전파 상황을 즉시 파악",
-      "외부 런타임 의존성 없는 단일 정적 바이너리로 배포",
+      "Containers/Networks/Images/Events 탭과 2초 주기 CPU·MEM·포트·상태 모니터링",
+      "네트워크 토폴로지와 컨테이너 lifecycle 이벤트 타임라인으로 장애 전파 시각화",
+      "실시간 로그 스트리밍, CPU·MEM 히스토리 차트, 컨테이너 exec, 이미지 pull 진행률 구현",
+      "Go 단일 바이너리와 pip·apt·GitHub Releases 기반 멀티 플랫폼 배포 자동화",
     ],
-    stack: ["Go", "Docker", "Bubble Tea"],
+    stack: ["Go", "Docker SDK", "Bubble Tea", "Lip Gloss", "Cobra", "GitHub Actions"],
     link: "https://github.com/0206pdh/dockviz-cli",
   },
   {

@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-:root { --paper: #f8fafc; --ink: #0f172a; --muted: #64748b; --line: #e2e8f0; --accent: #0284c7; --accent-soft: #e0f2fe; --orange: #f59e0b; }
+:root { --paper: #f8fafc; --ink: #0f172a; --muted: #64748b; --line: #e2e8f0; --accent: #111111; --accent-soft: #eef0f2; --orange: #52525b; }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body { margin: 0; background: var(--paper); color: var(--ink); font-family: Arial, "Noto Sans KR", sans-serif; font-size: 14px; line-height: 1.65; }
@@ -28,7 +28,7 @@ a { color: inherit; }
 .project-summary ul { margin: 0; padding-left: 18px; color: #4f5951; }
 .stack-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; border-top: 1px solid var(--line); margin-top: 30px; padding-top: 22px; }
 .stack-title { margin-right: 8px; color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
-.stack-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px 6px 7px; border: 1px solid #bae6fd; border-radius: 999px; background: var(--accent-soft); color: #0369a1; font-size: 11px; }
+.stack-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px 6px 7px; border: 1px solid #d4d4d8; border-radius: 999px; background: var(--accent-soft); color: #27272a; font-size: 11px; }
 .stack-chip img { display: block; width: 24px; height: 24px; object-fit: contain; }
 .profile-sheet { background: #fff; border: 1px solid var(--line); border-radius: 9px; margin-bottom: 24px; padding: 28px 46px; }
 .profile-intro { display: grid; grid-template-columns: 72px 1fr auto; gap: 18px; align-items: center; border-bottom: 1px solid var(--line); padding-bottom: 24px; }
@@ -66,6 +66,11 @@ a { color: inherit; }
 .architecture-arrow { color: #9cac9e; font-size: 19px; }
 .architecture-services { display: flex; flex-wrap: wrap; gap: 6px; margin: 20px 0 0 34px; }
 .architecture-services span { padding: 5px 8px; border-radius: 3px; background: #f4f5f2; color: var(--muted); font-size: 10px; }
+.architecture-overview-lead { max-width: 760px; margin: -14px 0 26px; color: #4f5951; font-size: 13px; line-height: 1.7; }
+.cloud-architecture-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.cloud-architecture-card { padding: 16px 17px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.cloud-architecture-card h4 { margin: 0 0 8px; color: var(--ink); font-size: 13px; font-weight: 800; letter-spacing: -.02em; }
+.cloud-architecture-card p { margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.6; }
 .role-layout { display: grid; gap: 34px; }
 .architecture-figures { display: grid; gap: 24px; }
 .architecture-figures figure { margin: 0; }
@@ -127,6 +132,7 @@ a { color: inherit; }
   .credential-list li { justify-content: flex-start; }
   .role-panel { align-self: start; }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
+  .cloud-architecture-grid { grid-template-columns: repeat(2, 1fr); }
   .troubleshooting-grid { grid-template-columns: 1fr; }
   .principles { grid-template-columns: 1fr; gap: 14px; }
   .bar-comparison div { grid-template-columns: 116px 1fr 58px; }
@@ -136,6 +142,7 @@ a { color: inherit; }
   .header-contact { flex-wrap: wrap; gap: 8px 14px; }
   .project-topline h2 { font-size: 31px; }
   .metric-grid { gap: 8px; }
+  .cloud-architecture-grid { grid-template-columns: 1fr; }
   .metric-card { min-height: 124px; padding: 13px; }
   .metric-card strong { font-size: 26px; }
   .metric-card span { margin-top: 10px; font-size: 12px; }

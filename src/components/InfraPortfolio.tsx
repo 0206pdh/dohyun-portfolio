@@ -53,6 +53,29 @@ const troubleshooting = [
   },
 ];
 
+const cloudLayers = [
+  { title: "Network", detail: "VPC의 Public/Private Subnet과 NAT Gateway로 외부 트래픽과 내부 워크로드를 분리하고, Secondary CIDR·VPC CNI Custom Networking으로 Pod IP 대역을 별도 관리합니다." },
+  { title: "Compute", detail: "EKS 위에 API·CPU Worker·GPU Worker·Batch를 NodePool 단위로 나누고, Karpenter가 워크로드 특성에 맞는 노드를 온디맨드로 프로비저닝합니다." },
+  { title: "Data", detail: "Aurora/RDS가 정형 데이터를, ElastiCache Redis가 캐시·세션을, S3가 오디오·리포트 파일을 맡아 컴퓨트 계층과 상태를 분리했습니다." },
+  { title: "Messaging", detail: "SQS 큐가 API와 Worker 사이를 비동기로 연결해, 분석 요청이 몰려도 API 응답성과 GPU 자원 사용을 독립적으로 조절할 수 있습니다." },
+  { title: "Security", detail: "IRSA로 Pod 단위 IAM 권한을 최소 범위로 부여하고, Secrets·ConfigMap으로 자격 증명과 설정 값을 애플리케이션 코드에서 분리했습니다." },
+  { title: "Observability", detail: "Prometheus·Grafana·OpenTelemetry·Phoenix를 연결해 노드, 큐, 워커, trace를 하나의 관측 축에서 함께 확인합니다." },
+  { title: "Delivery", detail: "Terraform이 VPC부터 EKS·RDS·SQS까지 기반 인프라를, Argo CD + Kustomize overlay가 애플리케이션 배포를 코드화해 dev/prod를 같은 원칙으로 운영합니다." },
+];
+
+function CloudArchitectureOverview() {
+  return (
+    <div className="cloud-architecture-grid">
+      {cloudLayers.map((layer) => (
+        <div className="cloud-architecture-card" key={layer.title}>
+          <h4>{layer.title}</h4>
+          <p>{layer.detail}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SectionTitle({ eyebrow, title }: { eyebrow: string; title: string }) {
   return <div className="section-title"><span>{eyebrow}</span><h2>{title}</h2></div>;
 }
@@ -125,11 +148,17 @@ export function InfraPortfolio() {
       </section>
 
       <section className="project-sheet">
-        <SectionTitle eyebrow="01 · Role & Architecture" title="구조를 만들고, 흐름을 검증했습니다" />
+        <SectionTitle eyebrow="01 · Cloud Architecture" title="EKS를 포함한 전체 클라우드 구조" />
+        <p className="architecture-overview-lead">EKS는 여러 계층 중 컴퓨트를 맡는 한 부분입니다. 네트워크·데이터·메시징·보안·관측성·배포까지 7개 계층이 함께 맞물려 하나의 운영 가능한 인프라를 이룹니다.</p>
+        <CloudArchitectureOverview />
+      </section>
+
+      <section className="project-sheet">
+        <SectionTitle eyebrow="02 · Role & Architecture" title="구조를 만들고, 흐름을 검증했습니다" />
         <div className="role-layout"><div><h3 className="subheading">주요업무 및 상세 역할</h3><ul className="check-list">{responsibilities.map((item) => <li key={item}>{item}</li>)}</ul></div><ArchitectureFigures /></div>
       </section>
 
-      <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="02 · Troubleshooting" title="장애를 원인 단위로 쪼개고 재발을 막았습니다" /><div className="troubleshooting-grid">{troubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
+      <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="03 · Troubleshooting" title="장애를 원인 단위로 쪼개고 재발을 막았습니다" /><div className="troubleshooting-grid">{troubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
       <footer className="portfolio-footer"><span>DoHyun · Cloud Infrastructure Engineer</span><span>© {new Date().getFullYear()}</span></footer>
     </main>
   );
