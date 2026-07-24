@@ -13,11 +13,10 @@ const stack = [
 ];
 
 const responsibilities = [
-  "Terraform 공통 모듈과 환경별 스택으로 VPC, EKS, Aurora/RDS, Redis, S3, SQS, IRSA를 코드화",
+  "Terraform을 공통 모듈과 환경별 스택으로 나눠, 리소스 정의는 재사용하면서 dev/prod는 변수 값만 다르게 주입되도록 구성",
   "Kustomize base + dev/prod overlay와 Argo CD Application으로 선언적 배포 흐름 구성",
   "API·CPU Worker·GPU Worker·Batch를 Namespace, NodePool, taint/toleration, resource request로 분리",
   "SQS queue depth를 기준으로 KEDA가 Pod를 확장하고, Karpenter가 CPU/GPU NodeClaim을 프로비저닝하도록 연결",
-  "Prometheus·Grafana·OpenTelemetry·Phoenix를 연결해 노드, 큐, 워커, trace를 함께 관측",
 ];
 
 type TroubleshootingItem = { number: string; title: string; problem: string; action: string; result?: string };

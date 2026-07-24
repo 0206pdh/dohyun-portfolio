@@ -51,8 +51,8 @@ a { color: inherit; }
 .section-title h2 { margin: 5px 0 0; font-size: clamp(22px, 3vw, 31px); line-height: 1.2; letter-spacing: -.06em; }
 .two-column { display: grid; grid-template-columns: 1fr 1fr; gap: 46px; }
 .check-list { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
-.check-list li { position: relative; padding-left: 25px; color: #4f5951; }
-.check-list li::before { position: absolute; left: 0; top: 6px; content: "✓"; color: var(--accent); font-weight: 900; }
+.check-list li { display: flex; align-items: flex-start; gap: 10px; color: #4f5951; }
+.check-list li::before { content: "✓"; flex: 0 0 auto; line-height: 1.65; color: var(--accent); font-weight: 900; }
 .architecture { padding: 8px 0 0; }
 .architecture-row, .architecture-branch { display: flex; align-items: center; gap: 10px; }
 .architecture-branch { padding: 24px 0 0 34px; }
