@@ -26,43 +26,38 @@ const troubleshooting: TroubleshootingItem[] = [
   {
     number: "01", title: "CA + HPA에서 KEDA + Karpenter로 전환",
     problem: "CPU 임계치 기반 HPA는 SQS 적체를 늦게 감지하고, GPU 노드의 최소 용량을 유지해야 해 유휴 비용이 발생했습니다.",
-    action: "SQS queue depth를 KEDA trigger로 사용하고, 워크로드별 NodePool과 Karpenter를 연결했습니다. Karpenter는 NodeClaim으로 EC2를 직접 프로비저닝해, 기존 CA의 ASG 확장 방식(약 3~5분) 대비 노드 준비 시간을 약 60초로 단축했습니다.",
+    action: "SQS queue depth를 KEDA trigger로 사용하고, 워크로드별 NodePool과 Karpenter를 연결했습니다.",
+    result: "Karpenter가 NodeClaim으로 EC2를 직접 프로비저닝하면서, 기존 CA의 ASG 확장 방식(약 3~5분) 대비 노드 준비 시간이 약 60초로 줄었습니다.",
   },
   {
     number: "02", title: "GPU 콜드스타트와 SQS 메시지 유실 방지",
     problem: "minReplicaCount=0인 GPU Worker가 EC2 부팅·드라이버 초기화·이미지 pull·모델 로딩을 거치며 첫 요청에 5~10분이 걸렸고, visibility timeout과 겹치면 메시지가 재처리 또는 DLQ로 이동할 수 있었습니다.",
-    action: "gpu-inference queue timeout을 600초에서 1800초로 늘리고 maxReceiveCount를 3으로 조정했습니다. EFS에 pyannote·Whisper 모델을 캐싱해 모델 다운로드 단계를 제거했습니다.",
+    action: "gpu-inference queue timeout을 600초에서 1800초로 늘리고 maxReceiveCount를 3으로 조정했습니다.",
+    result: "EFS에 pyannote·Whisper 모델을 캐싱해 모델 다운로드 단계를 제거하면서, 콜드스타트 시간과 메시지 재처리·DLQ 이동 위험을 함께 줄였습니다.",
   },
   {
     number: "03", title: "Worker disk-pressure 연쇄 eviction",
     problem: "3~7GB의 ML 이미지를 기본 20GB EBS에서 반복 pull하면서 worker Pod가 Evicted되고, 재생성된 Pod가 다시 이미지를 받는 루프가 발생했습니다.",
-    action: "Terraform worker disk를 50GB로 올리고 ephemeral-storage request/limit을 추가했습니다. worker 노드에는 1시간마다 미사용 이미지를 정리하는 image-pruner DaemonSet을 배치했습니다.",
+    action: "Terraform worker disk를 50GB로 올리고 ephemeral-storage request/limit을 추가했습니다.",
+    result: "1시간마다 미사용 이미지를 정리하는 image-pruner DaemonSet을 함께 배치해, disk-pressure eviction 루프가 재발하지 않는 것을 확인했습니다.",
   },
   {
     number: "04", title: "VPC CNI Prefix Delegation과 서브넷 단편화",
     problem: "가용 IP가 112개 남아도 /28 연속 블록을 확보하지 못해 IPAMD가 InsufficientCidr를 반환했고, CPU Worker가 16시간 동안 ContainerCreating에 머물렀습니다.",
-    action: "Secondary CIDR와 Pod subnet을 추가하고 VPC CNI Custom Networking 및 ENIConfig를 Terraform으로 구성했습니다. 이후 Pod 네트워크용 SG와 DNS 경로를 별도로 검증했습니다.",
+    action: "Secondary CIDR와 Pod subnet을 추가하고 VPC CNI Custom Networking 및 ENIConfig를 Terraform으로 구성했습니다.",
+    result: "Pod 네트워크용 SG와 DNS 경로를 별도로 검증해, ContainerCreating 정체 없이 CPU Worker가 정상적으로 스케줄되는 것을 확인했습니다.",
   },
   {
-    number: "05", title: "KEDA·Karpenter 운영 경계 정리",
-    problem: "KEDA의 scaleOnInFlight, Argo CD selfHeal, Karpenter consolidation이 동시에 동작하면서 GPU Pod flapping과 Terminating 지연이 발생했습니다.",
-    action: "cpu-worker의 consolidateAfter를 30초에서 5분으로 늘리고, GPU NodePool은 terminationGracePeriodSeconds보다 충분한 10분 버퍼를 두었습니다. KEDA가 replica를 조정하는 필드는 Argo CD ignoreDifferences로 분리했습니다.",
-  },
-  {
-    number: "06", title: "초기 배포 실패를 재발 방지 가능한 설정으로 전환",
-    problem: "IRSA ARN Account ID 누락, probe 경로 불일치, worker __main__ 진입점 누락, S3/DB 환경변수 불일치가 CrashLoopBackOff와 AccessDenied로 흩어져 나타났습니다.",
-    action: "AWS Account ID 자동 주입, health endpoint 교정, worker entrypoint 추가, ExternalSecret·IRSA·ConfigMap 기준 통일을 배포 스크립트와 매니페스트에 반영했습니다.",
-  },
-  {
-    number: "07", title: "On-Demand 중심 구조를 Spot·Right-sizing으로 비용 최적화",
+    number: "05", title: "On-Demand 중심 구조를 Spot·Right-sizing으로 비용 최적화",
     problem: "GPU Worker가 콜드스타트 대응을 위해 최소 용량을 상시 유지하면서 유휴 비용이 발생했고, Batch Worker는 실제 요청 리소스(1 vCPU/2Gi)에 비해 xlarge 인스턴스만 사용해 과다 프로비저닝되고 있었습니다.",
-    action: "Karpenter NodePool을 워크로드별로 Spot+On-Demand를 함께 쓰도록 열었습니다(CPU: m5/m5a/m6i/m6a, GPU: g4dn.xlarge/2xlarge, Batch: c5/c6i/c6a/m5/m6i). consolidation 정책도 워크로드 특성에 맞게 나눠 GPU는 terminationGracePeriodSeconds보다 긴 10분, CPU는 모델 재로딩 비용을 감안해 5분으로 설정했습니다. Kubecost와 AWS Cost Explorer로 적용 전후 비용을 비교했습니다.",
-    result: "EC2 컴퓨트 일일 비용이 $28.73 → $12.02로 약 58% 줄었고, 같은 기간 인스턴스 사용 시간은 오히려 47% 늘었습니다(g4dn 계열 -$27.16, m5 계열 -93.7%).",
+    action: "Karpenter NodePool을 워크로드별로 Spot+On-Demand를 함께 쓰도록 열고, consolidation 정책을 워크로드 특성에 맞게 나눴습니다(GPU 10분, CPU 5분).",
+    result: "Kubecost·Cost Explorer로 비교한 결과 EC2 컴퓨트 일일 비용이 $28.73 → $12.02로 약 58% 줄었고, 같은 기간 인스턴스 사용 시간은 오히려 47% 늘었습니다.",
   },
   {
-    number: "08", title: "Public 노출 최소화와 워크로드 격리로 방어 계층 추가",
+    number: "06", title: "Public 노출 최소화와 워크로드 격리로 방어 계층 추가",
     problem: "EKS API 엔드포인트가 Public으로 열려 있었고, 네임스페이스 간 네트워크가 분리되지 않아 워크로드 하나가 뚫리면 클러스터 전체로 위험이 번질 수 있는 구조였습니다.",
-    action: "CloudFront에 AWSManagedRulesCommonRuleSet + IP 기반 RateLimit WAF를 Count 모드로 먼저 붙이고 Block으로 전환했습니다. 인증서 기반 AWS Client VPN으로 클러스터 접근 경로를 별도로 구축하고, EKS API 엔드포인트를 Private로 전환했습니다. 네임스페이스에는 VPC CNI NetworkPolicy로 default-deny 후 ALB→API→AI 서비스 등 필요한 트래픽만 허용했고, 모든 워크로드에 runAsNonRoot·seccompProfile·readOnlyRootFilesystem을 적용했습니다. Promtail과 OTel Collector에는 Authorization·Cookie·토큰을 로그·trace 저장 전에 지우는 redact 처리를 추가했습니다.",
+    action: "CloudFront에 AWSManagedRulesCommonRuleSet + IP 기반 RateLimit WAF를 Count 모드로 먼저 붙이고 Block으로 전환했습니다. 인증서 기반 AWS Client VPN으로 클러스터 접근 경로를 별도로 구축했습니다.",
+    result: "서비스 트래픽 영향 없이 WAF를 Block 모드로 전환했고, EKS API 엔드포인트를 Private로 전환해 VPN 경로로만 접근할 수 있도록 좁혔습니다.",
   },
 ];
 
