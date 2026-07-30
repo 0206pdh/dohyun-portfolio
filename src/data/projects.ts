@@ -44,15 +44,15 @@ export const projects: Project[] = [
   {
     id: "dockviz-cli",
     name: "dockviz-cli",
-    period: "2026.03 - 2026.04",
+    period: "2026.03 - 진행 중",
     category: "Dev Tool / TUI",
     description:
-      "Docker 데몬의 컨테이너·네트워크·이미지·이벤트를 하나의 터미널 화면에서 실시간으로 모니터링하고 제어하는 Go 기반 TUI 대시보드입니다. Docker SDK로 데이터를 수집하고 Bubble Tea의 TEA 구조로 화면과 입력을 처리하며, 데모 모드·원격 데몬·단일 바이너리 배포를 지원합니다.",
+      "Docker 컨테이너 문제 신호와 디스크 회수 가능 공간을 하나의 터미널 화면에서 실시간으로 보여주는 Go 기반 TUI 대시보드입니다. Docker SDK로 데몬과 직접 통신하고, 데모 클라이언트를 같은 인터페이스로 묶어 데몬 없이도 개발·테스트할 수 있습니다.",
     highlights: [
-      "Containers/Networks/Images/Events 탭과 2초 주기 CPU·MEM·포트·상태 모니터링",
-      "네트워크 토폴로지와 컨테이너 lifecycle 이벤트 타임라인으로 장애 전파 시각화",
-      "실시간 로그 스트리밍, CPU·MEM 히스토리 차트, 컨테이너 exec, 이미지 pull 진행률 구현",
-      "Go 단일 바이너리와 pip·apt·GitHub Releases 기반 멀티 플랫폼 배포 자동화",
+      "Containers·Images·Problems·Disk Usage 4개 패널로 상태·문제·디스크 사용량을 한 화면에서 확인",
+      "이벤트와 리소스 이력을 결합해 OOM·재시작 루프·메모리 증가 등을 심각도별로 분류하는 Problems 엔진",
+      "system/df와 Windows VHDX 로컬 측정을 함께 읽어 Docker 회수분과 host 디스크 잔여분을 구분",
+      "Go 크로스컴파일과 pip·apt·GitHub Releases 기반 멀티 플랫폼 배포 자동화",
     ],
     stack: ["Go", "Docker SDK", "Bubble Tea", "Lip Gloss", "Cobra", "GitHub Actions"],
     link: "https://github.com/0206pdh/dockviz-cli",

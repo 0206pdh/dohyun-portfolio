@@ -52,6 +52,86 @@ const cloudLayers = [
   { title: "Delivery", detail: "Terraform이 VPC부터 EKS·RDS·SQS까지 기반 인프라를, Argo CD + Kustomize overlay가 애플리케이션 배포를 코드화해 dev/prod를 같은 원칙으로 운영합니다." },
 ];
 
+const dockvizStack = [
+  { label: "Go", icon: "/images/icons/go.svg" },
+  { label: "Docker SDK", icon: "/images/icons/docker.svg" },
+  { label: "Bubble Tea", icon: "/images/icons/bubbletea.svg" },
+  { label: "Cobra", icon: "/images/icons/cobra.svg" },
+  { label: "GitHub Actions", icon: "/images/icons/github-actions.svg" },
+];
+
+const dockvizPillars = [
+  { title: "CLI Entry", detail: "Cobra 기반 CLI가 --demo·--host·--version 플래그를 받아, 데몬 연결 여부와 무관하게 같은 진입점에서 동작을 분기합니다." },
+  { title: "Client Interface", detail: "실제 Docker SDK 클라이언트와 데모 클라이언트가 동일한 DockerClient 인터페이스를 구현해, 데몬 없이도 TUI 전체를 개발·테스트할 수 있습니다." },
+  { title: "TUI Runtime", detail: "Bubble Tea의 Model-Update-View 구조로 Containers·Images·Problems·Disk Usage 4개 화면의 상태 전이와 렌더링을 분리했습니다." },
+  { title: "Problems Engine", detail: "Docker 이벤트 스트림과 최근 CPU/MEM 이력을 결합해 OOM·재시작 루프·메모리 증가 등 신호를 심각도(Info/Warning/Critical)별로 분류합니다." },
+  { title: "Disk Usage Engine", detail: "system/df API와 Windows Docker Desktop VHDX 로컬 측정을 함께 읽어, Docker가 회수 가능하다고 보는 공간과 host 디스크에 남은 공간을 분리해서 보여줍니다." },
+  { title: "Compose Context", detail: "compose-go로 compose 파일을 파싱해 서비스 의존관계·네트워크·볼륨을 라이브 데몬 데이터 위에 읽기 전용으로 겹쳐, 변경 전 영향 범위를 보여줍니다." },
+  { title: "Distribution", detail: "GitHub Actions가 linux·windows·darwin × amd64·arm64 6개 조합으로 크로스컴파일한 바이너리를 PyPI wheel·Debian 패키지·GitHub Releases로 함께 배포합니다." },
+];
+
+const dockvizResponsibilities = [
+  "Docker SDK 클라이언트와 데모 클라이언트를 하나의 인터페이스로 묶어, 데몬 없이도 전체 TUI를 개발·검증할 수 있는 구조로 설계",
+  "Bubble Tea로 Containers·Images·Problems·Disk Usage 4개 화면의 상태 전이를 구현하고, CPU/MEM 히스토리 차트와 실시간 로그 스트리밍을 연결",
+  "Docker 이벤트와 리소스 이력을 결합해 문제 신호를 심각도별로 분류하는 Problems 엔진을 설계·구현",
+  "system/df와 Windows VHDX 로컬 측정을 결합한 Disk Usage 엔진을 구현하고, 실제 daemon에 fixture를 만들어 회수 검증을 진행",
+  "Go 크로스컴파일 → PyPI/Debian/GitHub Releases로 이어지는 배포 파이프라인을 GitHub Actions로 구축",
+  "약 5,600줄 규모의 Go 코드베이스는 TECHNICAL.ko.md 스펙 문서를 기준으로 계획·구현·검증을 반복하는 AI 보조 개발 사이클(AI-DLC)로 진행",
+];
+
+const dockvizTroubleshooting: TroubleshootingItem[] = [
+  {
+    number: "01", title: "Local Volumes prune가 표시된 용량을 회수하지 못한 문제",
+    problem: "Disk Usage 패널이 Local Volumes에서 reclaimable 용량을 보여줘도, 실제로 prune을 실행하면 0MB만 회수되고 다음 새로고침에서도 같은 용량이 그대로 남아 있었습니다.",
+    action: "원인은 Docker API 자체의 기본 동작 변화에 있었습니다. PruneVolumes()가 필터 없이 VolumesPrune을 호출하고 있었는데, Docker API 1.42부터는 필터 없는 volume prune 요청을 daemon이 자동으로 anonymous(레이블 없는 익명) volume에만 국한시킵니다(moby의 volume/service/convert.go에서 all=true가 없으면 AnonymousLabel 필터를 강제로 추가). 반면 실무에서 reclaimable로 잡히는 볼륨 대부분은 컨테이너가 삭제된 뒤 남은 named volume이라, 이 필터에 걸려 한 번도 지워지지 않고 있었습니다. filters.Arg(\"all\", \"true\")를 명시적으로 전달하도록 고쳐 패널이 보여주는 대상과 실제로 삭제되는 대상을 일치시켰고, 실제 daemon에 tagged unused image·dangling image·unused volume을 직접 만들어 삭제 검증을 진행했습니다.",
+    result: "테스트로 만든 2.147GB named volume이 정상적으로 삭제됐습니다. 별도의 대용량 시나리오에서는 컨테이너 삭제 후 17.18GB짜리 volume이 100% reclaimable로 정확히 남아 있는 것도 함께 확인했습니다.",
+  },
+  {
+    number: "02", title: "docker system df가 0B라도 Windows 디스크는 그대로였던 문제",
+    problem: "Windows Docker Desktop(WSL2)에서는 docker system df가 0B로 돌아온 뒤에도 C: 드라이브 여유 공간이 회복되지 않는 경우가 있어, prune 결과를 신뢰하기 어려웠습니다.",
+    action: "원인은 Docker 객체 삭제와 Windows host의 VHDX(docker_data.vhdx) 파일 크기 축소가 서로 다른 과정이라는 데 있었습니다. Docker daemon 안에서는 공간이 회수돼도, WSL2 VHDX는 compact 전까지 Windows 쪽에 그대로 할당돼 있습니다. Disk Usage 패널에 Docker reclaimable과는 완전히 분리된 읽기 전용 Host Storage 섹션을 추가해 VHDX 실제 크기를 로컬에서 직접 측정해 보여주고, docker system df 기준으로는 설명되지 않는 초과분을 'prune 대상이 아니라 진단용 gap'으로 명확히 구분했습니다.",
+    result: "검증 과정에서 VHDX를 실제로 compact했더니 19.46GB → 5.47GB로 줄었고, C: 드라이브 여유 공간이 13.93GB → 28.03GB로 회복되는 것을 확인했습니다.",
+  },
+  {
+    number: "03", title: "이미지 태그 하나만 지웠는데 다른 태그까지 삭제된 문제",
+    problem: "이미지 태그 하나만 지우려고 삭제를 눌렀는데, 같은 이미지 ID에 걸린 다른 태그(예: nginx:latest)까지 함께 삭제되는 문제가 있었습니다.",
+    action: "ImageRemove를 Force: true로 호출하고 있었는데, 이 옵션은 다른 태그가 남아 있어도 이미지 자체를 강제로 지웁니다. Force: false로 바꿔 태그 하나만 제거(untag)하고 다른 태그가 남아 있으면 실제 이미지는 보존되도록 했고, 삭제 확인창에 멀티태그 경고 문구를 추가했습니다. 같은 개선에서 이미지 목록도 태그 하나당 한 줄로 분리하고(이전에는 여러 태그가 한 줄에 뭉쳐 표시됨) 알파벳순으로 정렬해, 무엇이 삭제되고 무엇이 남는지 명확히 구분되도록 했습니다.",
+    result: "태그 단위 삭제가 다른 태그를 보존한 채로 정확히 동작하는 것을 확인했고, 목록 표시 순서도 새로고침마다 흔들리지 않게 안정됐습니다.",
+  },
+];
+
+function DockvizPillarOverview() {
+  return (
+    <div className="cloud-architecture-grid">
+      {dockvizPillars.map((pillar) => (
+        <div className="cloud-architecture-card" key={pillar.title}>
+          <h4>{pillar.title}</h4>
+          <p>{pillar.detail}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DockvizFigures() {
+  return (
+    <div className="architecture-figures">
+      <figure>
+        <figcaption>Problems 패널 · OOM·재시작 루프·메모리 증가를 심각도별로 분류</figcaption>
+        <div className="architecture-image">
+          <Image src="/images/dockviz-problems.svg" alt="dockviz Problems 패널" width={900} height={432} />
+        </div>
+      </figure>
+      <figure>
+        <figcaption>Disk Usage 패널 · 카테고리별 회수 가능 공간과 Host Storage 진단</figcaption>
+        <div className="architecture-image">
+          <Image src="/images/dockviz-disk-usage.svg" alt="dockviz Disk Usage 패널" width={815} height={430} />
+        </div>
+      </figure>
+    </div>
+  );
+}
+
 function CloudArchitectureOverview() {
   return (
     <div className="cloud-architecture-grid">
@@ -138,6 +218,31 @@ export function InfraPortfolio() {
       </section>
 
       <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="03 · Key Improvements" title="숫자로 증명한 핵심 개선 3가지" /><div className="troubleshooting-grid">{troubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
+
+      <section className="project-sheet hero-sheet">
+        <div className="project-topline">
+          <div><p className="project-label">개인 프로젝트 · dockviz-cli</p><h2>Docker 문제와 디스크 정리를 위한<br /><em>터미널 대시보드</em></h2><p className="project-period">진행기간 · 2026.03 — 진행 중</p></div>
+          <div className="role-panel"><p>담당 영역</p><strong>Go / Bubble Tea / Docker SDK</strong><span>기획부터 배포 자동화까지 1인 전체 소유</span></div>
+        </div>
+        <div className="project-summary">
+          <div><h3>프로젝트 목적</h3><p>docker ps, docker stats, docker system df, docker events를 오가며 컨테이너 상태와 디스크 사용량을 따로 확인하는 건 번거롭고, 개별 명령만으로는 놓치는 문제도 있습니다. 실제로 컨테이너를 삭제해도 volume은 남아 17GB가 그대로 디스크를 차지한 사례처럼, docker ps만 보면 이미 끝난 일로 보이는 문제가 실제로는 남아 있을 수 있습니다. dockviz는 이런 신호를 하나의 실시간 터미널 대시보드로 모아, 컨테이너 문제와 디스크 회수 가능 공간을 한 화면에서 보여주는 Go 기반 CLI 도구입니다.</p></div>
+        </div>
+        <div className="stack-row"><span className="stack-title">기술 스택</span>{dockvizStack.map((item) => <span className="stack-chip" key={item.label}><Image src={item.icon} alt="" width={24} height={24} /><span>{item.label}</span></span>)}</div>
+      </section>
+
+      <section className="project-sheet">
+        <SectionTitle eyebrow="01 · System Design" title="두 가지 질문에 답하는 구조로 설계" />
+        <p className="architecture-overview-lead">dockviz는 &ldquo;지금 컨테이너에 문제가 있는가&rdquo;와 &ldquo;무엇이 디스크를 차지하고, 무엇을 지울 수 있는가&rdquo; 두 질문에 답하는 데 집중합니다. Docker SDK로 데몬과 직접 통신하고, 데몬 없이도 개발·테스트할 수 있도록 데모 클라이언트를 같은 인터페이스로 묶었습니다. 한때 있었던 Networks 토폴로지, Events 타임라인, exec, 이미지 pull 진행률 화면은 이 두 질문에서 벗어난다고 판단해 의도적으로 범위 밖으로 뺐습니다.</p>
+        <DockvizPillarOverview />
+      </section>
+
+      <section className="project-sheet">
+        <SectionTitle eyebrow="02 · Role & Implementation" title="1인 개발로 기획부터 배포까지" />
+        <div className="role-layout"><div><h3 className="subheading">주요 구현 및 역할</h3><ul className="check-list">{dockvizResponsibilities.map((item) => <li key={item}>{item}</li>)}</ul></div><DockvizFigures /></div>
+      </section>
+
+      <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="03 · Key Fixes" title="검증까지 마친 핵심 버그 수정 3가지" /><div className="troubleshooting-grid">{dockvizTroubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
+
       <footer className="portfolio-footer"><span>DoHyun · Cloud Infrastructure Engineer</span><span>© {new Date().getFullYear()}</span></footer>
     </main>
   );
