@@ -43,11 +43,11 @@ export const projects: Project[] = [
   },
   {
     id: "dockviz-cli",
-    name: "dockviz-cli",
+    name: "dockviz",
     period: "2026.03 - 진행 중",
     category: "Dev Tool / TUI",
     description:
-      "Docker 컨테이너 문제 신호와 디스크 회수 가능 공간을 하나의 터미널 화면에서 실시간으로 보여주는 Go 기반 TUI 대시보드입니다. Docker SDK로 데몬과 직접 통신하고, 데모 클라이언트를 같은 인터페이스로 묶어 데몬 없이도 개발·테스트할 수 있습니다.",
+      "Docker 컨테이너 문제 신호와 디스크 회수 가능 공간을 하나의 터미널 화면에서 실시간으로 보여주는 Go 기반 TUI 대시보드입니다. Docker SDK로 데몬과 직접 통신하고, 데모 클라이언트를 같은 인터페이스로 묶어 데몬 없이도 개발·검증할 수 있습니다.",
     highlights: [
       "Containers·Images·Problems·Disk Usage 4개 패널로 상태·문제·디스크 사용량을 한 화면에서 확인",
       "이벤트와 리소스 이력을 결합해 OOM·재시작 루프·메모리 증가 등을 심각도별로 분류하는 Problems 엔진",
