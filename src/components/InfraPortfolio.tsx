@@ -98,7 +98,13 @@ const dockvizTroubleshooting: TroubleshootingItem[] = [
     number: "03", title: "이미지 태그 하나만 지웠는데 다른 태그까지 삭제된 문제",
     problem: "이미지 태그 하나만 지우려고 삭제를 눌렀는데, 같은 이미지 ID에 걸린 다른 태그(예: nginx:latest)까지 함께 삭제되는 문제가 있었습니다.",
     action: "ImageRemove를 Force: true로 호출하고 있었는데, 이 옵션은 다른 태그가 남아 있어도 이미지 자체를 강제로 지웁니다. Force: false로 바꿔 태그 하나만 제거(untag)하고 다른 태그가 남아 있으면 실제 이미지는 보존되도록 했고, 삭제 확인창에 멀티태그 경고 문구를 추가했습니다. 같은 개선에서 이미지 목록도 태그 하나당 한 줄로 분리하고(이전에는 여러 태그가 한 줄에 뭉쳐 표시됨) 알파벳순으로 정렬해, 무엇이 삭제되고 무엇이 남는지 명확히 구분되도록 했습니다.",
-    result: "태그 단위 삭제가 다른 태그를 보존한 채로 정확히 동작하는 것을 확인했고, 목록 표시 순서도 새로고침마다 흔들리지 않게 안정됐습니다.",
+    result: "같은 이미지 ID에 nginx:latest·nginx:1.25 두 태그를 걸어두고 nginx:1.25만 삭제해봤더니, nginx:latest와 실제 이미지 레이어는 그대로 남고 태그 하나만 정확히 제거되는 것을 확인했습니다. 목록 표시 순서도 새로고침마다 흔들리지 않게 안정됐습니다.",
+  },
+  {
+    number: "04", title: "컨테이너가 늘어날수록 새로고침이 느려지던 문제를 오픈소스 동시성 모델로 해결",
+    problem: "컨테이너별 CPU/MEM stats를 순서대로(sequential) 조회했는데, Docker의 단발성 stats API는 CPU 델타 계산을 위해 내부적으로 두 시점을 표본화하느라 호출 1건에 약 1초가 걸려, 컨테이너 수가 늘수록 새로고침 전체가 그만큼 느려졌습니다.",
+    action: "오픈소스인 Bubble Tea가 제공하는 비동기 tea.Cmd 모델 위에서, 컨테이너·이미지 목록 조회와 컨테이너별 stats 조회를 각각 Go goroutine + sync.WaitGroup으로 병렬화했습니다(internal/tui/model.go의 fetchDataCmd). 이 효과를 실제로 검증하기 위해 같은 Docker daemon에 유휴 컨테이너 12개를 띄우고, 동일한 FetchStats 호출을 순차 실행할 때와 병렬 실행할 때의 벽시계 시간을 5회 반복 측정해 비교하는 벤치마크를 직접 작성해 돌렸습니다.",
+    result: "12개 컨테이너 기준 순차 조회는 5회 평균 **21.6초**, 병렬 조회는 5회 평균 **2.19초**로 약 **9.9배** 빨랐습니다(로컬 재현 측정 기준).",
   },
 ];
 
@@ -249,7 +255,7 @@ export function InfraPortfolio() {
         <div className="role-layout"><div><h3 className="subheading">주요 구현 및 역할</h3><ul className="check-list">{dockvizResponsibilities.map((item) => <li key={item}>{item}</li>)}</ul></div><DockvizFigures /></div>
       </section>
 
-      <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="03 · Key Fixes" title="검증까지 마친 핵심 버그 수정 3가지" /><div className="troubleshooting-grid">{dockvizTroubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
+      <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="03 · Key Fixes" title="검증까지 마친 핵심 개선 4가지" /><div className="troubleshooting-grid">{dockvizTroubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
 
       <footer className="portfolio-footer"><span>DoHyun · Cloud Infrastructure Engineer</span><span>© {new Date().getFullYear()}</span></footer>
     </main>
