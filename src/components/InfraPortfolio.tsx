@@ -23,10 +23,10 @@ type TroubleshootingItem = { number: string; title: string; problem: string; act
 
 const troubleshooting: TroubleshootingItem[] = [
   {
-    number: "01", title: "CA + HPA에서 KEDA + Karpenter로 전환",
-    problem: "CPU 임계치 기반 HPA는 SQS 큐 적체를 늦게 감지했고, Cluster Autoscaler의 ASG 확장은 새 노드가 뜨기까지 3~5분이 걸려 GPU 콜드스타트를 더 악화시켰습니다.",
-    action: "큐별로 KEDA ScaledObject를 두어 audio-preprocess·gpu-inference·report-analysis·rag-ingest 큐 깊이를 직접 트리거로 사용하고, KEDA operator 전용 IRSA(pod identity)로 SQS 조회 권한만 최소로 부여했습니다. 노드 프로비저닝은 Karpenter로 넘기면서 NodePool을 cpu-worker·batch-worker·gpu로 나누고, 워크로드 특성에 맞춰 consolidation 정책을 다르게 설정했습니다(GPU는 WhenEmpty·10분 대기 후 회수해 처리 중 노드가 뺏기지 않도록, CPU/Batch는 짧은 주기로 유휴 노드를 빠르게 정리). Karpenter는 ASG/MNG의 launch template·lifecycle hook을 거치지 않고 NodeClaim으로 EC2를 직접 호출해 생성하기 때문에, Pending Pod의 리소스 요청만 보고 맞는 인스턴스 타입을 즉시 프로비저닝합니다. 전환 후에는 Grafana 대시보드로 desired/current replica 추이, 노드 생성·회수 이벤트, NodePool별 사용률을 관찰해 큐 적체 시 스케일아웃이 지연 없이 따라붙는지, 유휴 노드가 자동으로 정리되는지를 확인했습니다.",
-    result: "노드 준비 시간이 CA의 ASG 확장 방식(약 3~5분) 대비 Karpenter 직접 프로비저닝에서 약 60초로 줄었고, Pod Pending은 노드 부족 순간에만 잠깐 튀었다가 바로 0으로 떨어지는 것을 확인했습니다.",
+    number: "01", title: "CPU 기반 오토스케일링의 구조적 한계를 KEDA + Karpenter로 해결",
+    problem: "워커 부하는 SQS 큐 깊이로 결정되는데, 기존 HPA는 CPU 사용률만 관찰했습니다. 음성 파일이 쌓여도 워커가 떠 있지 않으면 CPU는 0%라 HPA는 이를 부하로 인식조차 못 했고, 구조적으로 scale-to-zero도 불가능해 유휴 비용이 큰 GPU Worker에 특히 불리했습니다.",
+    action: "audio-preprocess·gpu-inference·report-analysis·rag-ingest 큐마다 KEDA ScaledObject를 두어 SQS 큐 깊이 자체를 스케일 트리거로 사용하도록 바꿨습니다. KEDA는 실행 중인 Pod 없이도 외부 지표(큐 깊이)를 직접 폴링할 수 있어, HPA와 달리 minReplicaCount=0에서 시작해 메시지가 들어오면 0→1로 스케일업하는 구조가 가능합니다. KEDA operator 전용 IRSA(pod identity)로 SQS 조회 권한만 최소로 부여했고, 노드 프로비저닝은 Karpenter로 넘겨 NodePool을 cpu-worker·batch-worker·gpu로 분리했습니다. GPU NodePool은 WhenEmpty 정책으로 처리 중에는 노드를 유지하다가 큐가 비면 10분 뒤 0대까지 내리도록, CPU/Batch는 짧은 주기로 유휴 노드를 정리하도록 나눠 설정했습니다. Karpenter는 ASG/MNG의 launch template·lifecycle hook을 거치지 않고 NodeClaim으로 EC2를 직접 호출하기 때문에, Pending Pod의 리소스 요청만 보고 맞는 인스턴스 타입을 즉시 프로비저닝합니다. 전환 후에는 Grafana 대시보드로 desired/current replica 추이, 노드 생성·회수 이벤트, NodePool별 사용률을 관찰해 큐 적체 시 스케일아웃이 CPU 상태와 무관하게 즉시 따라붙는지, 유휴 노드가 실제로 정리되는지를 확인했습니다.",
+    result: "CPU 사용률과 무관하게 큐 깊이만으로 스케일이 걸리도록 바뀌면서, 예전에는 감지조차 못 하던 부하 패턴에도 반응하게 됐고 GPU NodePool을 0대까지 내리는 scale-to-zero가 가능해졌습니다. Pod 스케일 반응은 CPU 임계값을 기다리던 수 분에서 큐 감지 후 30초 이내로, 노드 준비 시간은 CA의 ASG 확장(약 3~5분) 대비 Karpenter 직접 프로비저닝에서 약 60초로 함께 줄었습니다.",
   },
   {
     number: "02", title: "GPU 콜드스타트 5~10분을 3~5분으로 단축",
