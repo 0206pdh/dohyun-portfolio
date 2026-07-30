@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-:root { --paper: #f8fafc; --ink: #0f172a; --muted: #64748b; --line: #e2e8f0; --accent: #111111; --accent-soft: #eef0f2; --orange: #52525b; }
+:root { --paper: #f8fafc; --ink: #0f172a; --muted: #64748b; --line: #e2e8f0; --accent: #111111; --accent-soft: #eef0f2; --orange: #c2410c; }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body { margin: 0; background: var(--paper); color: var(--ink); font-family: Arial, "Noto Sans KR", sans-serif; font-size: 14px; line-height: 1.65; }
@@ -109,6 +109,7 @@ a { color: inherit; }
 .troubleshooting-copy { display: grid; gap: 8px; margin-top: 13px; }
 .troubleshooting-copy p { margin: 0; color: #59635a; font-size: 12px; line-height: 1.6; }
 .troubleshooting-copy b { display: inline-block; min-width: 37px; margin-right: 4px; color: var(--accent); font-size: 11px; }
+.stat-highlight { color: var(--orange); font-weight: 800; }
 .reflection-sheet { background: #fdfefc; }
 .reflection-grid { display: grid; grid-template-columns: .85fr 1.15fr; gap: 50px; align-items: center; }
 .quote-block { padding: 24px 0 24px 26px; border-left: 3px solid var(--orange); }
