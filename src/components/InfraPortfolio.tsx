@@ -24,39 +24,21 @@ type TroubleshootingItem = { number: string; title: string; problem: string; act
 const troubleshooting: TroubleshootingItem[] = [
   {
     number: "01", title: "CA + HPA에서 KEDA + Karpenter로 전환",
-    problem: "CPU 임계치 기반 HPA는 SQS 적체를 늦게 감지하고, GPU 노드의 최소 용량을 유지해야 해 유휴 비용이 발생했습니다.",
-    action: "SQS queue depth를 KEDA trigger로 사용하고, 워크로드별 NodePool과 Karpenter를 연결했습니다.",
-    result: "Karpenter가 NodeClaim으로 EC2를 직접 프로비저닝하면서, 기존 CA의 ASG 확장 방식(약 3~5분) 대비 노드 준비 시간이 약 60초로 줄었습니다.",
+    problem: "CPU 임계치 기반 HPA는 SQS 큐 적체를 늦게 감지했고, Cluster Autoscaler의 ASG 확장은 새 노드가 뜨기까지 3~5분이 걸려 GPU 콜드스타트를 더 악화시켰습니다.",
+    action: "큐별로 KEDA ScaledObject를 두어 audio-preprocess·gpu-inference·report-analysis·rag-ingest 큐 깊이를 직접 트리거로 사용하고, KEDA operator 전용 IRSA(pod identity)로 SQS 조회 권한만 최소로 부여했습니다. 노드 프로비저닝은 Karpenter로 넘기면서 NodePool을 cpu-worker·batch-worker·gpu로 나누고, 워크로드 특성에 맞춰 consolidation 정책을 다르게 설정했습니다(GPU는 WhenEmpty·10분 대기 후 회수해 처리 중 노드가 뺏기지 않도록, CPU/Batch는 짧은 주기로 유휴 노드를 빠르게 정리). Karpenter는 ASG/MNG의 launch template·lifecycle hook을 거치지 않고 NodeClaim으로 EC2를 직접 호출해 생성하기 때문에, Pending Pod의 리소스 요청만 보고 맞는 인스턴스 타입을 즉시 프로비저닝합니다. 전환 후에는 Grafana 대시보드로 desired/current replica 추이, 노드 생성·회수 이벤트, NodePool별 사용률을 관찰해 큐 적체 시 스케일아웃이 지연 없이 따라붙는지, 유휴 노드가 자동으로 정리되는지를 확인했습니다.",
+    result: "노드 준비 시간이 CA의 ASG 확장 방식(약 3~5분) 대비 Karpenter 직접 프로비저닝에서 약 60초로 줄었고, Pod Pending은 노드 부족 순간에만 잠깐 튀었다가 바로 0으로 떨어지는 것을 확인했습니다.",
   },
   {
-    number: "02", title: "GPU 콜드스타트와 SQS 메시지 유실 방지",
-    problem: "minReplicaCount=0인 GPU Worker가 EC2 부팅·드라이버 초기화·이미지 pull·모델 로딩을 거치며 첫 요청에 5~10분이 걸렸고, visibility timeout과 겹치면 메시지가 재처리 또는 DLQ로 이동할 수 있었습니다.",
-    action: "gpu-inference queue timeout을 600초에서 1800초로 늘리고 maxReceiveCount를 3으로 조정했습니다.",
-    result: "EFS에 pyannote·Whisper 모델을 캐싱해 모델 다운로드 단계를 제거하면서, 콜드스타트 시간과 메시지 재처리·DLQ 이동 위험을 함께 줄였습니다.",
+    number: "02", title: "GPU 콜드스타트 5~10분을 3~5분으로 단축",
+    problem: "GPU Worker는 minReplicaCount=0이라 첫 요청마다 EC2 부팅부터 모델 로딩까지 5~10분의 콜드스타트가 발생했고, 처리 중 SQS visibility timeout(600초)을 넘기면 메시지가 재수신되거나 DLQ로 빠질 위험이 있었습니다.",
+    action: "콜드스타트 구간을 EC2 부팅(1~3분), GPU 드라이버 초기화(30초~1분), ML 이미지 pull(1~2분), pyannote·Whisper 모델 로딩(2~3분)으로 나눠보니 앞의 세 구간은 KEDA·Karpenter가 손댈 수 없는 AWS/OS/컨테이너 레이어였고, 실제로 줄일 수 있는 건 매번 HuggingFace에서 새로 받던 모델 로딩 구간이었습니다. Terraform으로 EFS 파일시스템과 마운트 타깃을 새로 만들고 EFS CSI Driver·StorageClass(efs-ap, ReadWriteMany)·PVC를 구성해 GPU 노드가 여러 개 떠도 같은 모델 캐시를 공유하도록 했습니다. Init Job을 한 번 돌려 pyannote·Whisper 모델을 EFS에 먼저 올려두고, HF_HOME을 /mnt/model-cache로 지정해 pod가 뜰 때 다운로드 없이 캐시에서 바로 로드하도록 바꿨습니다. 메시지 유실 위험은 별도로 gpu-inference 큐의 visibility timeout을 600초에서 1800초로 늘리고 maxReceiveCount를 3으로 조정해, 처리 도중 재수신되거나 DLQ로 직행하지 않도록 했습니다.",
+    result: "모델 로딩 구간이 2~3분에서 EFS 캐시 로드 20~40초로 줄면서, 전체 콜드스타트가 5~10분에서 3~5분으로 단축됐습니다. 부팅·드라이버·이미지 pull 구간은 그대로지만, 가장 큰 비중을 차지하던 모델 다운로드 단계를 제거한 효과입니다.",
   },
   {
-    number: "03", title: "Worker disk-pressure 연쇄 eviction",
-    problem: "3~7GB의 ML 이미지를 기본 20GB EBS에서 반복 pull하면서 worker Pod가 Evicted되고, 재생성된 Pod가 다시 이미지를 받는 루프가 발생했습니다.",
-    action: "Terraform worker disk를 50GB로 올리고 ephemeral-storage request/limit을 추가했습니다.",
-    result: "1시간마다 미사용 이미지를 정리하는 image-pruner DaemonSet을 함께 배치해, disk-pressure eviction 루프가 재발하지 않는 것을 확인했습니다.",
-  },
-  {
-    number: "04", title: "VPC CNI Prefix Delegation과 서브넷 단편화",
-    problem: "가용 IP가 112개 남아도 /28 연속 블록을 확보하지 못해 IPAMD가 InsufficientCidr를 반환했고, CPU Worker가 16시간 동안 ContainerCreating에 머물렀습니다.",
-    action: "Secondary CIDR와 Pod subnet을 추가하고 VPC CNI Custom Networking 및 ENIConfig를 Terraform으로 구성했습니다.",
-    result: "Pod 네트워크용 SG와 DNS 경로를 별도로 검증해, ContainerCreating 정체 없이 CPU Worker가 정상적으로 스케줄되는 것을 확인했습니다.",
-  },
-  {
-    number: "05", title: "On-Demand 중심 구조를 Spot·Right-sizing으로 비용 최적화",
-    problem: "GPU Worker가 콜드스타트 대응을 위해 최소 용량을 상시 유지하면서 유휴 비용이 발생했고, Batch Worker는 실제 요청 리소스(1 vCPU/2Gi)에 비해 xlarge 인스턴스만 사용해 과다 프로비저닝되고 있었습니다.",
-    action: "Karpenter NodePool을 워크로드별로 Spot+On-Demand를 함께 쓰도록 열고, consolidation 정책을 워크로드 특성에 맞게 나눴습니다(GPU 10분, CPU 5분).",
-    result: "Kubecost·Cost Explorer로 비교한 결과 EC2 컴퓨트 일일 비용이 $28.73 → $12.02로 약 58% 줄었고, 같은 기간 인스턴스 사용 시간은 오히려 47% 늘었습니다.",
-  },
-  {
-    number: "06", title: "Public 노출 최소화와 워크로드 격리로 방어 계층 추가",
-    problem: "EKS API 엔드포인트가 Public으로 열려 있었고, 네임스페이스 간 네트워크가 분리되지 않아 워크로드 하나가 뚫리면 클러스터 전체로 위험이 번질 수 있는 구조였습니다.",
-    action: "CloudFront에 AWSManagedRulesCommonRuleSet + IP 기반 RateLimit WAF를 Count 모드로 먼저 붙이고 Block으로 전환했습니다. 인증서 기반 AWS Client VPN으로 클러스터 접근 경로를 별도로 구축했습니다.",
-    result: "서비스 트래픽 영향 없이 WAF를 Block 모드로 전환했고, EKS API 엔드포인트를 Private로 전환해 VPN 경로로만 접근할 수 있도록 좁혔습니다.",
+    number: "03", title: "On-Demand 중심 구조를 Spot·Right-sizing으로 비용 최적화",
+    problem: "GPU Worker가 콜드스타트 대응을 위해 최소 용량을 상시 유지해 유휴 비용이 발생했고, Batch Worker는 실제 요청 리소스(1 vCPU/2Gi) 대비 xlarge 인스턴스만 사용해 과다 프로비저닝되고 있었습니다.",
+    action: "Karpenter NodePool을 워크로드별로 나눠 CPU(m5/m5a/m6i/m6a)·GPU(g4dn.xlarge/2xlarge)·Batch(c5/c6i/c6a/m5/m6i)에 Spot+On-Demand를 함께 열어 인스턴스 선택 폭을 넓히고, consolidation 정책도 워크로드 특성에 맞게 나눴습니다(GPU는 처리 중 노드가 회수되지 않도록 10분, CPU는 모델 재로딩 비용을 감안해 5분 대기 후 회수). 전환 전후 효과는 감으로 판단하지 않고 Kubecost와 AWS Cost Explorer를 연결한 FinOps 파이프라인으로 EC2 컴퓨트 비용을 인스턴스 패밀리별로 나눠 비교했습니다.",
+    result: "EC2 컴퓨트 일일 비용이 $28.73 → $12.02로 약 58% 줄었습니다. 인스턴스 패밀리별로는 GPU 계열이 $45.20 → $18.04(-60%), 고비용이던 m5 계열은 -93.7% 수준으로 거의 제거되고 저렴한 버스터블·Spot 인스턴스로 재배치됐습니다. 같은 기간 인스턴스 사용 시간은 449시간 → 660시간으로 오히려 47% 늘었는데도 총비용은 33.8% 줄어, 사용량이 늘어도 단가 자체가 낮아졌다는 걸 확인했습니다.",
   },
 ];
 
@@ -132,24 +114,6 @@ export function InfraPortfolio() {
         <div className="header-contact"><a href={`mailto:${profile.contact.email}`}>{profile.contact.email}</a><a href={profile.contact.github} target="_blank" rel="noreferrer">GitHub ↗</a></div>
       </header>
 
-      <section className="profile-sheet">
-        <div className="profile-intro">
-          <Image src={profile.avatarUrl} alt={profile.name} width={72} height={72} className="profile-avatar" priority />
-          <div>
-            <p className="profile-label">CLOUD ENGINEER</p>
-            <h2>{profile.name}</h2>
-            <p>{profile.tagline}</p>
-          </div>
-          <div className="profile-links"><a href={`mailto:${profile.contact.email}`}>{profile.contact.email}</a><a href={profile.contact.github} target="_blank" rel="noreferrer">github.com/0206pdh ↗</a></div>
-        </div>
-        <div className="profile-details">
-          <div><h3>기본 정보</h3><dl><div><dt>생년월일</dt><dd>{profile.birthDate}</dd></div><div><dt>이메일</dt><dd>{profile.contact.email}</dd></div></dl></div>
-          <div><h3>학력 · 교육 이수</h3><dl>{profile.education.map((item) => <div key={item.school}><dt>학력</dt><dd>{item.school}{item.degree && ` · ${item.degree}`} ({item.period} · {item.status})</dd></div>)}{profile.training.map((item) => <div key={item.name}><dt>교육</dt><dd>{item.name} ({item.period} · {item.status})</dd></div>)}</dl></div>
-          <div><h3>자격증 · 어학</h3><ul className="credential-list">{profile.certificates.map((item) => <li key={item.name}><span>{item.name}</span><small>{item.status} · {item.date}</small></li>)}</ul></div>
-          <div><h3>수상이력</h3><ul className="credential-list">{profile.awards.map((award) => <li key={award}><span>{award.replace("최우수상", "")}<strong>최우수상</strong></span></li>)}</ul></div>
-        </div>
-      </section>
-
       <section className="project-sheet hero-sheet">
         <div className="project-topline">
           <div><p className="project-label">AWS 13기 최종 프로젝트 · UtterAI</p><h2>AI 기반 언어 재활 임상 치료 보조 SaaS</h2><p className="project-period">진행기간 · 2026.05 — 2026.07</p></div>
@@ -173,7 +137,7 @@ export function InfraPortfolio() {
         <div className="role-layout"><div><h3 className="subheading">주요업무 및 상세 역할</h3><ul className="check-list">{responsibilities.map((item) => <li key={item}>{item}</li>)}</ul></div><EksClusterFigure /></div>
       </section>
 
-      <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="03 · Troubleshooting" title="장애를 원인 단위로 쪼개고 재발을 막았습니다" /><div className="troubleshooting-grid">{troubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
+      <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="03 · Key Improvements" title="숫자로 증명한 핵심 개선 3가지" /><div className="troubleshooting-grid">{troubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
       <footer className="portfolio-footer"><span>DoHyun · Cloud Infrastructure Engineer</span><span>© {new Date().getFullYear()}</span></footer>
     </main>
   );
