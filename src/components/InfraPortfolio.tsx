@@ -19,7 +19,8 @@ const responsibilities = [
   "SQS queue depth를 기준으로 KEDA가 Pod를 확장하고, Karpenter가 CPU/GPU NodeClaim을 프로비저닝하도록 연결",
 ];
 
-type TroubleshootingItem = { number: string; title: string; problem: string; action: string; result?: string };
+type CodeSnippet = { caption: string; content: string };
+type TroubleshootingItem = { number: string; title: string; problem: string; action: string; result?: string; code?: CodeSnippet };
 
 const troubleshooting: TroubleshootingItem[] = [
   {
@@ -133,20 +134,115 @@ const meshTroubleshooting: TroubleshootingItem[] = [
     problem: "Capacity discovery로 usable capacity(C\\*=28 RPS)를 찾은 뒤, 이 절대 RPS(8/17/22)로 No-Mesh 정식 반복측정을 시작했습니다. 그런데 사전에 정해둔 정밀도 기준(p95 상대 반폭 ≤5%, p99 ≤10%, CPU ≤5%)이 9~11회 시점에 **12~36%**로, 기준 대비 **2~7배** 벗어나 있었습니다. 1/√n 수렴 속도로 15회 상한 도달 시점의 값을 미리 계산해보니, 이대로면 상한을 다 채워도 대부분 통과하지 못할 것으로 예측됐습니다.",
     action: "무작정 반복 횟수를 늘리는 임시방편 대신 원인부터 짚었습니다. 이 클러스터(노드당 allocatable 2 vCPU)의 latency 자체가 **25~45ms대**로 작아서, 상대 비율 기준이 몇 ms 안 되는 절대 오차를 과장하고 있었던 것입니다. 상대 기준은 유지하되 절대(ms/core-s) 기준을 OR 조건으로 추가하는 ADR을 세워 정책을 바꿨고, 이미 돌고 있던 측정 프로세스가 구버전 기준을 메모리에 들고 있어 불필요하게 재측정할 위험까지 발견해 warm-up 구간(측정 낭비가 가장 적은 시점)에 맞춰 안전하게 재시작했습니다.",
     result: "정책 변경만으로 재계산하자 high 조건이 곧바로 통과 판정을 받으며 실효성이 확인됐습니다. 반면 nominal 조건은 15회 상한까지 다 채웠는데도 p99 절대 반폭(9.08ms)이 기준(8ms)을 **8.9%** 초과해, 억지로 통과시키지 않고 결론을 명시적으로 유보했습니다. 이렇게 확정된 8/17/22 RPS는 이후 Sidecar·Ambient·Waypoint 어떤 profile을 측정하든 **다시 낮추지 않고 그대로 재사용**하는 절대 기준이 됐습니다 — 그래야 '동일 조건에서 워크로드별 비용을 비교했다'는 결론이 성립하기 때문입니다.",
+    code: {
+      caption: "experiments/analysis.py — 절대·상대 혼합 정밀도 게이트(하이브리드 OR 조건)",
+      content: `POLICY = {
+    "minimumValidRuns": 10,
+    "maximumValidRuns": 15,
+    "bootstrapResamples": 10_000,
+    "confidenceLevel": 0.95,
+    # A metric passes if EITHER the relative half-width or the absolute
+    # half-width threshold is met. Relative-only thresholds overstate
+    # noise on this cluster's small (~25-40ms) baseline latencies.
+    "precision": {
+        "p95Ms": {"relative": 0.05, "absolute": 5.0},
+        "p99Ms": {"relative": 0.10, "absolute": 8.0},
+        "cpuCoreSecondsPerRequest": {"relative": 0.05, "absolute": 0.01},
+    },
+}
+
+if valid_count < POLICY["minimumValidRuns"]:
+    decision = "CONTINUE"
+elif all(item["passed"] for item in precision.values()):
+    decision = "STOP_PRECISION_REACHED"
+elif valid_count >= POLICY["maximumValidRuns"]:
+    decision = "INCONCLUSIVE_MAX_RUNS"
+else:
+    decision = "CONTINUE"`,
+    },
   },
   {
     number: "02", title: "가장 유력해 보이던 가설(mTLS)을 직접 꺼서 검증하고, 실제로 기각",
     problem: "Profile 간 독립 2-표본 bootstrap 비교(36개 지표 비교) 중 유일하게 3개 부하 조건(8/17/22 RPS) 모두 일관되게 유의했던 지표는 network bytes/request였습니다. Sidecar는 No-Mesh 대비 요청당 **약 49%**(10,200~11,500바이트) 더 많은 바이트를 전송했고, Ambient는 같은 비교에서 **1~2%**만 늘었습니다. 가장 그럴듯한 설명은 'Envoy가 매 hop마다 붙이는 mTLS 핸드셰이크·레코드 오버헤드'였습니다.",
     action: "이 가설을 인상으로 남겨두지 않고 직접 검증했습니다. PeerAuthentication으로 mTLS를 **DISABLE**하고 나머지는 전부 고정한 채, nominal(8 RPS) 조건에서 정식 10~15회 반복측정을 새로 돌렸습니다 — 기존 PERMISSIVE 측정이 15회 상한까지도 정밀도를 통과하지 못했던 것과 달리, 이번엔 **10회 만에** 통과했습니다.",
     result: "결과는 가설을 기각했습니다. mTLS를 꺼도 network bytes/request는 겨우 **341바이트(약 1%)**만 줄었습니다 — Sidecar 전체 오버헤드(49%) 중 mTLS가 설명하는 부분은 최대 3% 남짓이라는 뜻입니다. 측정 도중 latency가 오히려 나빠지는(p95 +12.4ms) 뜻밖의 결과도 나왔지만, 비교 대상이던 기존 baseline과 현재 클러스터의 **Istio 버전이 서로 달랐다**는 confound를 뒤늦게 발견해, 이 latency 결과에는 '확정 아님' 꼬리표를 붙이고 network bytes 결론만 유지했습니다. 그럴듯해 보이는 첫 번째 가설이 실제로는 틀렸다는 것을 직접 측정으로 확인하고, 성공 스토리로 포장하지 않고 그대로 정직하게 기록했습니다.",
+    code: {
+      caption: "experiments/compare_profiles.py — profile 간 독립 2-표본 bootstrap 비교",
+      content: `def bootstrap_difference_ci(values_a: list[float], values_b: list[float], seed: int,
+                             resamples: int = 10_000, confidence: float = 0.95) -> dict:
+    """Two-sample bootstrap CI for median(b) - median(a).
+
+    The two groups are resampled independently (not index-paired) because
+    runs across profiles were never executed in matched blocks -- each
+    profile's canonical baseline is its own independent measurement session.
+    """
+    rng = random.Random(seed)
+    differences = []
+    for _ in range(resamples):
+        resample_a = rng.choices(values_a, k=len(values_a))
+        resample_b = rng.choices(values_b, k=len(values_b))
+        differences.append(_median(resample_b) - _median(resample_a))
+    alpha = (1 - confidence) / 2
+    low = percentile(differences, alpha)
+    high = percentile(differences, 1 - alpha)
+    return {
+        "medianDifference": _median(values_b) - _median(values_a),
+        "confidenceInterval95": {"low": low, "high": high},
+        "significant": low > 0 or high < 0,
+    }`,
+    },
   },
   {
     number: "03", title: "패킷 레벨까지 내려가서야 보인, Waypoint 연결 실패의 진짜 원인",
     problem: "Ambient 위에 orchestrator-service 단일 hop만 Waypoint를 경유하도록 배포했는데, gateway→waypoint 홉은 통과했지만 **waypoint→실제 backend pod 홉**은 계속 실패했습니다. Envoy 관리자 API로는 TCP 연결은 성공하는데 HTTP 요청은 즉시 리셋됐고, 이 연결은 ztunnel access log에도 전혀 잡히지 않았습니다. 노드 co-location 가설을 podAntiAffinity로 반증했지만 동일하게 재현됐고, Istio를 완전히 다른 버전(1.30.3→1.29.6)으로 재설치해도 똑같이 실패해, 한때 **'버전 독립적인 근본 아키텍처 비호환'**으로 결론짓고 조사를 종료했습니다.",
     action: "하지만 이 결론은 다음 날 다시 열어본 조사에서 틀린 것으로 밝혀졌습니다. 이번엔 애플리케이션 로그나 Envoy 통계 대신 처음으로 cilium monitor --type drop으로 **패킷 레벨을 직접** 봤고, 몇 분 만에 'drop (Policy denied) ... :15008 tcp SYN' 로그를 잡았습니다. 원인은 orchestrator-service의 NetworkPolicy가 waypoint로부터의 ingress를 포트 **8080만** 열어두고 HBONE 포트 **15008**을 빠뜨린, 며칠간의 진단 끝에는 허무할 만큼 단순한 템플릿 실수였습니다.",
     result: "'버전이 달라도 똑같이 실패한다'는 관찰 자체는 맞았지만, 거기서 내린 결론이 틀렸습니다 — NetworkPolicy는 Kubernetes/Cilium 리소스라 Istio를 통째로 재설치해도 전혀 바뀌지 않는데, '재설치로 바뀌지 않은 것'을 의심하는 대신 '재설치로 바뀐 것(Istio 자체)'만 의심했던 것입니다. 포트를 추가하자 **20/20, 이어서 50/50 연속 성공**했고, 이번엔 Waypoint 자체의 rq_total 카운터가 요청 수만큼 실제로 증가하는 것까지 확인해(재배포 직후 5연속 curl 성공이 실은 keep-alive 연결 풀이 Waypoint를 완전히 우회한 거짓 양성이었던 앞선 사례를 교훈 삼아) 이번 성공은 거짓 양성이 아님을 검증했습니다.",
+    code: {
+      caption: "deploy/charts/meshperf/templates/networkpolicies.yaml — 수정된 orchestrator-service ingress (HBONE 포트 추가)",
+      content: `{{- if .Values.waypoint.enabled }}
+    - from:
+        - podSelector:
+            matchLabels:
+              gateway.networking.k8s.io/gateway-name: {{ .Values.waypoint.orchestratorGatewayName }}
+      ports:
+        - {protocol: TCP, port: 8080}
+        - {protocol: TCP, port: {{ .Values.ambient.hbonePort }}}
+    {{- end }}`,
+    },
   },
 ];
+
+type CapacityRow = { targetRps: string; stage: string; result: string; achievedRps: string; errorRate: string; p95: string; p99: string; flag?: boolean };
+
+const capacityDiscoveryRows: CapacityRow[] = [
+  { targetRps: "10", stage: "geometric", result: "PASS", achievedRps: "10.004", errorRate: "0%", p95: "34.073", p99: "41.945" },
+  { targetRps: "20", stage: "geometric", result: "PASS", achievedRps: "20.004", errorRate: "0%", p95: "30.311", p99: "46.767" },
+  { targetRps: "40", stage: "geometric", result: "CAPACITY_FAIL", achievedRps: "39.885", errorRate: "0%", p95: "101.238", p99: "193.956" },
+  { targetRps: "30", stage: "refine", result: "CAPACITY_FAIL", achievedRps: "30.002", errorRate: "0%", p95: "68.965", p99: "118.975", flag: true },
+  { targetRps: "25", stage: "refine", result: "PASS", achievedRps: "25.003", errorRate: "0%", p95: "54.793", p99: "80.406" },
+  { targetRps: "27", stage: "refine (retry-03)", result: "PASS", achievedRps: "27.001", errorRate: "0%", p95: "47.225", p99: "72.835" },
+  { targetRps: "28", stage: "refine", result: "PASS (최종 C*)", achievedRps: "28.001", errorRate: "0%", p95: "47.381", p99: "69.087", flag: true },
+];
+
+function CapacityDiscoveryEvidence() {
+  return (
+    <div className="evidence-table-wrap">
+      <p className="evidence-code-caption">Evidence · 2026-07-23 capacity discovery raw log (NO_MESH · SYNC_CHAIN 3-hop · payload 1 KiB)</p>
+      <table className="evidence-table">
+        <thead>
+          <tr><th>Target RPS</th><th>단계</th><th>결과</th><th>Achieved RPS</th><th>오류율</th><th>p95 (ms)</th><th>p99 (ms)</th></tr>
+        </thead>
+        <tbody>
+          {capacityDiscoveryRows.map((row) => (
+            <tr key={`${row.targetRps}-${row.stage}`} className={row.flag ? "evidence-row-flag" : undefined}>
+              <td>{row.targetRps}</td><td>{row.stage}</td><td>{row.result}</td><td>{row.achievedRps}</td><td>{row.errorRate}</td><td>{row.p95}</td><td>{row.p99}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 function MeshWorkloadOverview() {
   return (
@@ -246,6 +342,15 @@ function paragraphs(text: string) {
   return text.split("\n\n").map((para, i) => <p key={i}>{highlight(para)}</p>);
 }
 
+function EvidenceCode({ code }: { code: CodeSnippet }) {
+  return (
+    <div className="evidence-code-wrap">
+      <p className="evidence-code-caption">{code.caption}</p>
+      <pre className="evidence-code"><code>{code.content}</code></pre>
+    </div>
+  );
+}
+
 function TroubleshootingCard({ item }: { item: TroubleshootingItem }) {
   return (
     <article className="troubleshooting-card">
@@ -253,6 +358,7 @@ function TroubleshootingCard({ item }: { item: TroubleshootingItem }) {
       <div className="troubleshooting-copy">
         <div className="troubleshooting-block"><b>문제</b><div className="troubleshooting-text">{paragraphs(item.problem)}</div></div>
         <div className="troubleshooting-block"><b>해결</b><div className="troubleshooting-text">{paragraphs(item.action)}</div></div>
+        {item.code && <div className="troubleshooting-block"><b>코드</b><EvidenceCode code={item.code} /></div>}
         {item.result && <div className="troubleshooting-block"><b>결과</b><div className="troubleshooting-text">{paragraphs(item.result)}</div></div>}
       </div>
     </article>
@@ -338,7 +444,12 @@ export function InfraPortfolio() {
         <div className="role-layout"><div><h3 className="subheading">주요 구현 및 역할</h3><ul className="check-list">{meshResponsibilities.map((item) => <li key={item}>{item}</li>)}</ul></div></div>
       </section>
 
-      <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="03 · Key Verifications" title="가설을 세우고, 실측으로 검증하거나 기각한 3가지 발견" /><div className="troubleshooting-grid">{meshTroubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
+      <section className="project-sheet troubleshooting-sheet">
+        <SectionTitle eyebrow="03 · Key Verifications" title="가설을 세우고, 실측으로 검증하거나 기각한 3가지 발견" />
+        <p className="architecture-overview-lead">결론만 남기지 않고 결론을 만든 원본도 함께 남깁니다. capacity discovery 원본 로그와, 정밀도 게이트·profile 비교·NetworkPolicy 수정에 실제로 쓰인 코드입니다.</p>
+        <CapacityDiscoveryEvidence />
+        <div className="troubleshooting-grid">{meshTroubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div>
+      </section>
 
       <footer className="portfolio-footer"><span>DoHyun · Cloud Infrastructure Engineer</span><span>© {new Date().getFullYear()}</span></footer>
     </main>
