@@ -83,28 +83,22 @@ const dockvizResponsibilities = [
 
 const dockvizTroubleshooting: TroubleshootingItem[] = [
   {
-    number: "01", title: "Local Volumes prune가 표시된 용량을 회수하지 못한 문제",
-    problem: "Disk Usage 패널이 Local Volumes에서 reclaimable 용량을 보여줘도, 실제로 prune을 실행하면 0MB만 회수되고 다음 새로고침에서도 같은 용량이 그대로 남아 있었습니다.",
-    action: "원인은 Docker API 자체의 기본 동작 변화에 있었습니다. PruneVolumes()가 필터 없이 VolumesPrune을 호출하고 있었는데, Docker API 1.42부터는 필터 없는 volume prune 요청을 daemon이 자동으로 anonymous(레이블 없는 익명) volume에만 국한시킵니다(moby의 volume/service/convert.go에서 all=true가 없으면 AnonymousLabel 필터를 강제로 추가). 반면 실무에서 reclaimable로 잡히는 볼륨 대부분은 컨테이너가 삭제된 뒤 남은 named volume이라, 이 필터에 걸려 한 번도 지워지지 않고 있었습니다. filters.Arg(\"all\", \"true\")를 명시적으로 전달하도록 고쳐 패널이 보여주는 대상과 실제로 삭제되는 대상을 일치시켰습니다. 검증은 감으로 끝내지 않고, 같은 label을 가진 4GiB named volume 2개를 실제로 만들어 --all 없이/있이 각각 prune하는 시나리오를 재현했습니다.",
-    result: "--all 없이 prune했을 때는 daemon이 **'Total reclaimed space: 0B'** 를 반환하며 두 volume이 그대로 남았고, --all을 명시하자 두 volume 합계 **8.59GB(4.295GB × 2)** 가 정확히 회수됐습니다.",
+    number: "01", title: "Local Volumes가 회수되지 않던 문제, 그리고 회수돼도 Windows 디스크는 그대로였던 문제",
+    problem: "Disk Usage 패널이 Local Volumes에서 reclaimable 용량을 보여줘도 실제 prune 결과는 0B로 끝나는 경우가 있었고, Docker 쪽에서 정상적으로 회수되더라도 Windows Docker Desktop(WSL2)에서는 C: 드라이브 여유 공간이 바로 돌아오지 않는 경우가 있어, 두 증상 모두 prune 결과를 신뢰하기 어렵게 만들었습니다.",
+    action: "첫 번째 원인은 Docker API 자체의 기본 동작 변화였습니다. PruneVolumes()가 필터 없이 VolumesPrune을 호출하고 있었는데, Docker API 1.42부터는 필터 없는 volume prune 요청을 daemon이 자동으로 anonymous(레이블 없는 익명) volume에만 국한시킵니다(moby의 volume/service/convert.go에서 all=true가 없으면 AnonymousLabel 필터를 강제로 추가). 반면 실무에서 reclaimable로 잡히는 볼륨 대부분은 컨테이너가 삭제된 뒤 남은 named volume이라 이 필터에 걸려 한 번도 지워지지 않고 있었습니다. filters.Arg(\"all\", \"true\")를 명시적으로 전달하도록 고쳐 패널이 보여주는 대상과 실제로 삭제되는 대상을 일치시켰습니다. 두 번째 원인은 Docker 객체 삭제와 Windows host의 VHDX(docker_data.vhdx) 파일 크기 축소가 서로 다른 과정이라는 데 있었습니다. Docker daemon 안에서는 공간이 회수돼도 WSL2 VHDX는 compact 전까지 Windows 쪽에 그대로 할당돼 있어, Disk Usage 패널에 Docker reclaimable과는 완전히 분리된 읽기 전용 Host Storage 섹션을 추가해 VHDX 실제 크기를 로컬에서 직접 측정해 보여주고, docker system df 기준으로는 설명되지 않는 초과분을 'prune 대상이 아니라 진단용 gap'으로 명확히 구분했습니다. dockviz가 VHDX를 자동으로 compact하지는 않도록 했는데, Docker Desktop/WSL 상태와 관리자 권한에 따라 위험도가 있어 read-only 진단과 안내만 하는 편이 맞다고 판단했기 때문입니다. 검증은 감으로 끝내지 않고, 같은 label을 가진 4GiB named volume 2개를 실제로 만들어 --all 없이/있이 각각 prune한 뒤, 그 직후 host 여유 공간과 VHDX 크기 변화까지 이어서 측정했습니다.",
+    result: "--all 없이 prune했을 때는 daemon이 **'Total reclaimed space: 0B'** 를 반환하며 두 volume이 그대로 남았고, --all을 명시하자 두 volume 합계 **8.59GB(4.295GB × 2)** 가 정확히 회수됐습니다. 하지만 이 8.59GB를 정리한 직후에도 host 여유 공간은 **13.520GB → 13.512GB**로 사실상 회복되지 않았고, docker_data.vhdx는 **9.375GB**를 그대로 차지하고 있었습니다. Docker daemon이 '지워졌다'고 답해도 Windows는 그 공간을 아직 못 돌려받는다는 걸 같은 검증에서 함께 확인한 셈입니다.",
   },
   {
-    number: "02", title: "Docker 객체를 지워도 Windows 디스크는 그대로였던 문제",
-    problem: "Windows Docker Desktop(WSL2)에서는 Docker 객체를 정리해도 C: 드라이브 여유 공간이 바로 돌아오지 않는 경우가 있어, prune 결과를 신뢰하기 어려웠습니다.",
-    action: "원인은 Docker 객체 삭제와 Windows host의 VHDX(docker_data.vhdx) 파일 크기 축소가 서로 다른 과정이라는 데 있었습니다. Docker daemon 안에서는 공간이 회수돼도, WSL2 VHDX는 compact 전까지 Windows 쪽에 그대로 할당돼 있습니다. Disk Usage 패널에 Docker reclaimable과는 완전히 분리된 읽기 전용 Host Storage 섹션을 추가해 VHDX 실제 크기를 로컬에서 직접 측정해 보여주고, docker system df 기준으로는 설명되지 않는 초과분을 'prune 대상이 아니라 진단용 gap'으로 명확히 구분했습니다. dockviz가 VHDX를 자동으로 compact하지는 않도록 했는데, Docker Desktop/WSL 상태와 관리자 권한에 따라 위험도가 있어 read-only 진단과 안내만 하는 편이 맞다고 판단했기 때문입니다.",
-    result: "8.59GB 규모의 volume fixture를 정리한 뒤에도 host 여유 공간은 **13.520GB → 13.512GB**로 사실상 회복되지 않았고, docker_data.vhdx는 **9.375GB**를 그대로 차지하고 있었습니다. Docker daemon이 '지워졌다'고 답해도 Windows는 그 공간을 아직 못 돌려받는다는 걸 실측으로 재확인했습니다.",
-  },
-  {
-    number: "03", title: "이미지 태그 하나만 지웠는데 다른 태그까지 삭제된 문제",
+    number: "02", title: "이미지 태그 하나만 지웠는데 다른 태그까지 삭제된 문제",
     problem: "이미지 태그 하나만 지우려고 삭제를 눌렀는데, 같은 이미지 ID에 걸린 다른 태그까지 함께 삭제되는 문제가 있었습니다.",
-    action: "ImageRemove를 Force: true로 호출하고 있었는데, 이 옵션은 다른 태그가 남아 있어도 이미지 자체를 강제로 지웁니다. Force: false로 바꿔 태그 하나만 제거(untag)하고 다른 태그가 남아 있으면 실제 이미지는 보존되도록 했고, 삭제 확인창에 멀티태그 경고 문구를 추가했습니다. 같은 개선에서 이미지 목록도 태그 하나당 한 줄로 분리하고(이전에는 여러 태그가 한 줄에 뭉쳐 표시됨) 알파벳순으로 정렬했습니다. 검증은 캐시 재사용 없이(--no-cache) 768MiB payload 이미지를 새로 빌드해, 같은 이미지 ID에 :keep·:remove 두 태그를 걸고 :remove만 삭제하는 방식으로 재현했습니다.",
-    result: "삭제 로그에는 'Untagged: ...:remove'만 남았고, keptTagExistsAfterRemove=true·removedTagExistsAfterRemove=false로 :keep 태그와 **813MB** 이미지 레이어는 그대로, :remove 태그만 정확히 사라진 것을 확인했습니다.",
+    action: "ImageRemove를 Force: true로 호출하고 있었는데, 이 옵션은 다른 태그가 남아 있어도 이미지 자체를 강제로 지웁니다. Force: false로 바꿔 태그 하나만 제거(untag)하고 다른 태그가 남아 있으면 실제 이미지는 보존되도록 했고, 삭제 확인창에 멀티태그 경고 문구를 추가했습니다. 같은 개선에서 이미지 목록도 태그 하나당 한 줄로 분리하고(이전에는 여러 태그가 한 줄에 뭉쳐 표시됨) 알파벳순으로 정렬했습니다. 검증은 캐시 재사용을 막기 위해 --no-cache로 768MiB payload(dd if=/dev/zero bs=1M count=768)를 굽는 이미지를 새로 빌드해, 같은 이미지 ID에 :keep·:remove 두 태그를 걸고 :remove만 삭제하는 방식으로 재현했습니다.",
+    result: "빌드된 두 이미지(:keep, :remove)는 각각 **813MB**였고, 삭제 로그에는 'Untagged: ...:remove'만 남았습니다. 검증 결과 keptTagExistsAfterRemove=true·removedTagExistsAfterRemove=false로 :keep 태그와 813MB 레이어는 그대로, :remove 태그만 정확히 사라진 것을 확인했습니다. 같은 검증에서 이 빌드가 남긴 BuildKit build cache **806.1MB**는 이미지 삭제와 무관하게 그대로 남아 있어, dockviz Disk Usage가 Build Cache를 Images와 별도 행으로 추적해야 하는 이유도 함께 확인했습니다.",
   },
   {
-    number: "04", title: "컨테이너가 늘어날수록 새로고침이 느려지던 문제를 오픈소스 동시성 모델로 해결",
-    problem: "컨테이너별 CPU/MEM stats를 순서대로(sequential) 조회했는데, Docker의 단발성 stats API는 CPU 델타 계산을 위해 내부적으로 두 시점을 표본화하느라 호출 1건에 약 1초가 걸려, 컨테이너 수가 늘수록 새로고침 전체가 그만큼 느려졌습니다.",
-    action: "오픈소스인 Bubble Tea가 제공하는 비동기 tea.Cmd 모델 위에서, 컨테이너·이미지 목록 조회와 컨테이너별 stats 조회를 각각 Go goroutine + sync.WaitGroup으로 병렬화했습니다(internal/tui/model.go의 fetchDataCmd). 검증은 PowerShell job이 아니라 dockviz와 동일한 Go SDK 경로(internal/docker.FetchStats)로, 같은 컨테이너 12개에 대해 순차 호출과 병렬 호출을 5회씩 반복 측정했습니다.",
-    result: "5회 실행 결과 순차 조회는 18.343~21.141초(평균 **19.730초**), 병렬 조회는 1.879~2.436초(평균 **2.058초**)로, 매 실행 8.2~11.2배, 평균 **9.585배** 빨랐습니다.",
+    number: "03", title: "컨테이너가 늘어날수록 새로고침이 느려지던 문제를 오픈소스 동시성 모델로 해결",
+    problem: "컨테이너별 CPU/MEM stats를 순서대로(sequential) 조회했는데, 컨테이너 수가 늘수록 새로고침 전체가 그만큼 느려졌습니다.",
+    action: "원인은 Docker의 단발성 stats API(ContainerStats with stream=false) 자체에 있었습니다. CPU 사용률은 두 시점의 cgroup 값을 비교해야 계산할 수 있는데(internal/docker/containers.go의 calcCPUPercent가 CPUStats·PreCPUStats 델타로 계산), daemon이 그 두 표본을 확보하는 데만 호출 1건당 약 1초가 걸려 이 지연은 컨테이너 수에 비례해 누적됐습니다. 오픈소스인 Bubble Tea가 제공하는 비동기 tea.Cmd 모델 위에서, 컨테이너·이미지 목록 조회와 컨테이너별 stats 조회를 각각 Go goroutine + sync.WaitGroup으로 병렬화해(internal/tui/model.go의 fetchDataCmd) 이 지연이 순차 누적되지 않고 동시에 겹치도록 바꿨습니다. 같은 맥락에서 비용이 큰 system/df 호출(fetchDiskUsageCmd)도 Disk Usage 탭이 열려 있을 때만 실행되도록 제한해, 기본 2초 주기 새로고침에는 부담을 주지 않게 했습니다. 검증은 PowerShell job이 아니라 dockviz와 동일한 Go SDK 경로(internal/docker.FetchStats)로, 같은 컨테이너 12개에 대해 순차 호출과 병렬 호출을 5회씩 반복 측정했습니다.",
+    result: "1회차 19.494초→2.091초(9.325배), 2회차 20.092초→2.436초(8.248배), 3회차 19.580초→1.936초(10.113배), 4회차 21.141초→1.879초(11.248배), 5회차 18.343초→1.949초(9.409배)로, 5회 평균 순차 **19.730초**가 병렬 **2.058초**로 줄어 평균 **9.585배** 빨랐습니다.",
   },
 ];
 
@@ -255,7 +249,7 @@ export function InfraPortfolio() {
         <div className="role-layout"><div><h3 className="subheading">주요 구현 및 역할</h3><ul className="check-list">{dockvizResponsibilities.map((item) => <li key={item}>{item}</li>)}</ul></div><DockvizFigures /></div>
       </section>
 
-      <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="03 · Key Fixes" title="검증까지 마친 핵심 개선 4가지" /><div className="troubleshooting-grid">{dockvizTroubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
+      <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="03 · Key Fixes" title="검증까지 마친 핵심 개선 3가지" /><div className="troubleshooting-grid">{dockvizTroubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
 
       <footer className="portfolio-footer"><span>DoHyun · Cloud Infrastructure Engineer</span><span>© {new Date().getFullYear()}</span></footer>
     </main>
