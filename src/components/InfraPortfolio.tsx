@@ -24,21 +24,21 @@ type TroubleshootingItem = { number: string; title: string; problem: string; act
 const troubleshooting: TroubleshootingItem[] = [
   {
     number: "01", title: "CPU 기반 오토스케일링의 구조적 한계를 KEDA + Karpenter로 해결",
-    problem: "워커 부하는 SQS 큐 깊이로 결정되는데, 기존 HPA는 CPU 사용률만 관찰했습니다. 음성 파일이 쌓여도 워커가 떠 있지 않으면 CPU는 0%라 HPA는 이를 부하로 인식조차 못 했고, 구조적으로 scale-to-zero도 불가능해 유휴 비용이 큰 GPU Worker에 특히 불리했습니다.",
-    action: "audio-preprocess·gpu-inference·report-analysis·rag-ingest 큐마다 KEDA ScaledObject를 두어 SQS 큐 깊이 자체를 스케일 트리거로 사용하도록 바꿨습니다. KEDA는 실행 중인 Pod 없이도 외부 지표(큐 깊이)를 직접 폴링할 수 있어, HPA와 달리 minReplicaCount=0에서 시작해 메시지가 들어오면 0→1로 스케일업하는 구조가 가능합니다. KEDA operator 전용 IRSA(pod identity)로 SQS 조회 권한만 최소로 부여했고, 노드 프로비저닝은 Karpenter로 넘겨 NodePool을 cpu-worker·batch-worker·gpu로 분리했습니다. GPU NodePool은 WhenEmpty 정책으로 처리 중에는 노드를 유지하다가 큐가 비면 10분 뒤 0대까지 내리도록, CPU/Batch는 짧은 주기로 유휴 노드를 정리하도록 나눠 설정했습니다. Karpenter는 ASG/MNG의 launch template·lifecycle hook을 거치지 않고 NodeClaim으로 EC2를 직접 호출하기 때문에, Pending Pod의 리소스 요청만 보고 맞는 인스턴스 타입을 즉시 프로비저닝합니다. 전환 후에는 Grafana 대시보드로 desired/current replica 추이, 노드 생성·회수 이벤트, NodePool별 사용률을 관찰해 큐 적체 시 스케일아웃이 CPU 상태와 무관하게 즉시 따라붙는지, 유휴 노드가 실제로 정리되는지를 확인했습니다.",
-    result: "CPU 사용률과 무관하게 큐 깊이만으로 스케일이 걸리도록 바뀌면서, 예전에는 감지조차 못 하던 부하 패턴에도 반응하게 됐고 GPU NodePool을 0대까지 내리는 **scale-to-zero**가 가능해졌습니다. Pod 스케일 반응은 CPU 임계값을 기다리던 수 분에서 큐 감지 후 **30초 이내**로, 노드 준비 시간은 CA의 ASG 확장(약 3~5분) 대비 Karpenter 직접 프로비저닝에서 **약 60초**로 함께 줄었습니다.",
+    problem: "워커 부하는 SQS 큐 깊이로 결정되는데, 기존 HPA는 CPU 사용률만 관찰했습니다. 음성 파일이 쌓여도 워커가 떠 있지 않으면 **CPU는 0%**라 HPA는 이를 부하로 인식조차 못 했고, 구조적으로 **scale-to-zero도 불가능**해 유휴 비용이 큰 GPU Worker에 특히 불리했습니다.",
+    action: "audio-preprocess·gpu-inference·report-analysis·rag-ingest 큐마다 KEDA ScaledObject를 두어 SQS 큐 깊이 자체를 스케일 트리거로 사용하도록 바꿨습니다. KEDA는 실행 중인 Pod 없이도 외부 지표(큐 깊이)를 직접 폴링할 수 있어, HPA와 달리 **minReplicaCount=0**에서 시작해 메시지가 들어오면 **0→1로 스케일업**하는 구조가 가능합니다.\n\nKEDA operator 전용 IRSA(pod identity)로 SQS 조회 권한만 최소로 부여했고, 노드 프로비저닝은 Karpenter로 넘겨 NodePool을 cpu-worker·batch-worker·gpu로 분리했습니다. GPU NodePool은 **WhenEmpty** 정책으로 처리 중에는 노드를 유지하다가 큐가 비면 **10분 뒤 0대까지** 내리도록, CPU/Batch는 짧은 주기로 유휴 노드를 정리하도록 나눠 설정했습니다.\n\nKarpenter는 ASG/MNG의 launch template·lifecycle hook을 거치지 않고 **NodeClaim으로 EC2를 직접 호출**하기 때문에, Pending Pod의 리소스 요청만 보고 맞는 인스턴스 타입을 즉시 프로비저닝합니다. 전환 후에는 Grafana 대시보드로 desired/current replica 추이, 노드 생성·회수 이벤트, NodePool별 사용률을 관찰해 큐 적체 시 스케일아웃이 CPU 상태와 무관하게 즉시 따라붙는지, 유휴 노드가 실제로 정리되는지를 확인했습니다.",
+    result: "CPU 사용률과 무관하게 큐 깊이만으로 스케일이 걸리도록 바뀌면서, 예전에는 감지조차 못 하던 부하 패턴에도 반응하게 됐고 GPU NodePool을 0대까지 내리는 **scale-to-zero**가 가능해졌습니다.\n\nPod 스케일 반응은 CPU 임계값을 기다리던 수 분에서 큐 감지 후 **30초 이내**로, 노드 준비 시간은 CA의 ASG 확장(약 3~5분) 대비 Karpenter 직접 프로비저닝에서 **약 60초**로 함께 줄었습니다.",
   },
   {
     number: "02", title: "GPU 콜드스타트 5~10분을 3~5분으로 단축",
-    problem: "GPU Worker는 minReplicaCount=0이라 첫 요청마다 EC2 부팅부터 모델 로딩까지 5~10분의 콜드스타트가 발생했고, 처리 중 SQS visibility timeout(600초)을 넘기면 메시지가 재수신되거나 DLQ로 빠질 위험이 있었습니다.",
-    action: "콜드스타트 구간을 EC2 부팅(1~3분), GPU 드라이버 초기화(30초~1분), ML 이미지 pull(1~2분), pyannote·Whisper 모델 로딩(2~3분)으로 나눠보니 앞의 세 구간은 KEDA·Karpenter가 손댈 수 없는 AWS/OS/컨테이너 레이어였고, 실제로 줄일 수 있는 건 매번 HuggingFace에서 새로 받던 모델 로딩 구간이었습니다. Terraform으로 EFS 파일시스템과 마운트 타깃을 새로 만들고 EFS CSI Driver·StorageClass(efs-ap, ReadWriteMany)·PVC를 구성해 GPU 노드가 여러 개 떠도 같은 모델 캐시를 공유하도록 했습니다. Init Job을 한 번 돌려 pyannote·Whisper 모델을 EFS에 먼저 올려두고, HF_HOME을 /mnt/model-cache로 지정해 pod가 뜰 때 다운로드 없이 캐시에서 바로 로드하도록 바꿨습니다. 메시지 유실 위험은 별도로 gpu-inference 큐의 visibility timeout을 600초에서 1800초로 늘리고 maxReceiveCount를 3으로 조정해, 처리 도중 재수신되거나 DLQ로 직행하지 않도록 했습니다.",
-    result: "모델 로딩 구간이 2~3분에서 EFS 캐시 로드 **20~40초**로 줄면서, 전체 콜드스타트가 **5~10분에서 3~5분**으로 단축됐습니다. 부팅·드라이버·이미지 pull 구간은 그대로지만, 가장 큰 비중을 차지하던 모델 다운로드 단계를 제거한 효과입니다.",
+    problem: "GPU Worker는 minReplicaCount=0이라 첫 요청마다 EC2 부팅부터 모델 로딩까지 **5~10분**의 콜드스타트가 발생했고, 처리 중 SQS visibility timeout(600초)을 넘기면 메시지가 재수신되거나 **DLQ로 빠질 위험**이 있었습니다.",
+    action: "콜드스타트 구간을 EC2 부팅(1~3분), GPU 드라이버 초기화(30초~1분), ML 이미지 pull(1~2분), pyannote·Whisper 모델 로딩(2~3분)으로 나눠보니 앞의 세 구간은 KEDA·Karpenter가 손댈 수 없는 AWS/OS/컨테이너 레이어였고, 실제로 줄일 수 있는 건 매번 HuggingFace에서 새로 받던 **모델 로딩 구간**이었습니다.\n\nTerraform으로 EFS 파일시스템과 마운트 타깃을 새로 만들고 EFS CSI Driver·StorageClass(efs-ap, ReadWriteMany)·PVC를 구성해 GPU 노드가 여러 개 떠도 같은 모델 캐시를 공유하도록 했습니다. Init Job을 한 번 돌려 pyannote·Whisper 모델을 EFS에 먼저 올려두고, **HF_HOME을 /mnt/model-cache로 지정**해 pod가 뜰 때 다운로드 없이 캐시에서 바로 로드하도록 바꿨습니다.\n\n메시지 유실 위험은 별도로 gpu-inference 큐의 visibility timeout을 **600초에서 1800초**로 늘리고 maxReceiveCount를 3으로 조정해, 처리 도중 재수신되거나 DLQ로 직행하지 않도록 했습니다.",
+    result: "모델 로딩 구간이 2~3분에서 EFS 캐시 로드 **20~40초**로 줄면서, 전체 콜드스타트가 **5~10분에서 3~5분**으로 단축됐습니다. 부팅·드라이버·이미지 pull 구간은 그대로지만, 가장 큰 비중을 차지하던 **모델 다운로드 단계를 제거**한 효과입니다.",
   },
   {
     number: "03", title: "On-Demand 중심 구조를 Spot·Right-sizing으로 비용 최적화",
-    problem: "GPU Worker가 콜드스타트 대응을 위해 최소 용량을 상시 유지해 유휴 비용이 발생했고, Batch Worker는 실제 요청 리소스(1 vCPU/2Gi) 대비 xlarge 인스턴스만 사용해 과다 프로비저닝되고 있었습니다.",
-    action: "Karpenter NodePool을 워크로드별로 나눠 CPU(m5/m5a/m6i/m6a)·GPU(g4dn.xlarge/2xlarge)·Batch(c5/c6i/c6a/m5/m6i)에 Spot+On-Demand를 함께 열어 인스턴스 선택 폭을 넓히고, consolidation 정책도 워크로드 특성에 맞게 나눴습니다(GPU는 처리 중 노드가 회수되지 않도록 10분, CPU는 모델 재로딩 비용을 감안해 5분 대기 후 회수). 전환 전후 효과는 감으로 판단하지 않고 Kubecost와 AWS Cost Explorer를 연결한 FinOps 파이프라인으로 EC2 컴퓨트 비용을 인스턴스 패밀리별로 나눠 비교했습니다.",
-    result: "EC2 컴퓨트 일일 비용이 **$28.73 → $12.02**로 **약 58%** 줄었습니다. 인스턴스 패밀리별로는 GPU 계열이 **$45.20 → $18.04(-60%)**, 고비용이던 m5 계열은 **-93.7%** 수준으로 거의 제거되고 저렴한 버스터블·Spot 인스턴스로 재배치됐습니다. 같은 기간 인스턴스 사용 시간은 **449시간 → 660시간**으로 오히려 **47%** 늘었는데도 총비용은 **33.8%** 줄어, 사용량이 늘어도 단가 자체가 낮아졌다는 걸 확인했습니다.",
+    problem: "GPU Worker가 콜드스타트 대응을 위해 최소 용량을 상시 유지해 **유휴 비용**이 발생했고, Batch Worker는 실제 요청 리소스(1 vCPU/2Gi) 대비 xlarge 인스턴스만 사용해 **과다 프로비저닝**되고 있었습니다.",
+    action: "Karpenter NodePool을 워크로드별로 나눠 CPU(m5/m5a/m6i/m6a)·GPU(g4dn.xlarge/2xlarge)·Batch(c5/c6i/c6a/m5/m6i)에 **Spot+On-Demand**를 함께 열어 인스턴스 선택 폭을 넓히고, consolidation 정책도 워크로드 특성에 맞게 나눴습니다(GPU는 처리 중 노드가 회수되지 않도록 10분, CPU는 모델 재로딩 비용을 감안해 5분 대기 후 회수).\n\n전환 전후 효과는 감으로 판단하지 않고 **Kubecost와 AWS Cost Explorer**를 연결한 FinOps 파이프라인으로 EC2 컴퓨트 비용을 인스턴스 패밀리별로 나눠 비교했습니다.",
+    result: "EC2 컴퓨트 일일 비용이 **$28.73 → $12.02**로 **약 58%** 줄었습니다. 인스턴스 패밀리별로는 GPU 계열이 **$45.20 → $18.04(-60%)**, 고비용이던 m5 계열은 **-93.7%** 수준으로 거의 제거되고 저렴한 버스터블·Spot 인스턴스로 재배치됐습니다.\n\n같은 기간 인스턴스 사용 시간은 **449시간 → 660시간**으로 오히려 **47%** 늘었는데도 총비용은 **33.8%** 줄어, 사용량이 늘어도 단가 자체가 낮아졌다는 걸 확인했습니다.",
   },
 ];
 
@@ -84,15 +84,15 @@ const dockvizResponsibilities = [
 const dockvizTroubleshooting: TroubleshootingItem[] = [
   {
     number: "01", title: "Local Volumes가 회수되지 않던 문제, 그리고 회수돼도 Windows 디스크는 그대로였던 문제",
-    problem: "Disk Usage 패널이 Local Volumes에서 reclaimable 용량을 보여줘도 실제 prune 결과는 0B로 끝나는 경우가 있었고, Docker 쪽에서 정상적으로 회수되더라도 Windows Docker Desktop(WSL2)에서는 C: 드라이브 여유 공간이 바로 돌아오지 않는 경우가 있어, 두 증상 모두 prune 결과를 신뢰하기 어렵게 만들었습니다.",
-    action: "첫 번째 원인은 Docker API 자체의 기본 동작 변화였습니다. PruneVolumes()가 필터 없이 VolumesPrune을 호출하고 있었는데, Docker API 1.42부터는 필터 없는 volume prune 요청을 daemon이 자동으로 anonymous(레이블 없는 익명) volume에만 국한시킵니다(moby의 volume/service/convert.go에서 all=true가 없으면 AnonymousLabel 필터를 강제로 추가). 반면 실무에서 reclaimable로 잡히는 볼륨 대부분은 컨테이너가 삭제된 뒤 남은 named volume이라 이 필터에 걸려 한 번도 지워지지 않고 있었습니다. filters.Arg(\"all\", \"true\")를 명시적으로 전달하도록 고쳐 패널이 보여주는 대상과 실제로 삭제되는 대상을 일치시켰습니다. 두 번째 원인은 Docker 객체 삭제와 Windows host의 VHDX(docker_data.vhdx) 파일 크기 축소가 서로 다른 과정이라는 데 있었습니다. Docker daemon 안에서는 공간이 회수돼도 WSL2 VHDX는 compact 전까지 Windows 쪽에 그대로 할당돼 있어, Disk Usage 패널에 Docker reclaimable과는 완전히 분리된 읽기 전용 Host Storage 섹션을 추가해 VHDX 실제 크기를 로컬에서 직접 측정해 보여주고, docker system df 기준으로는 설명되지 않는 초과분을 'prune 대상이 아니라 진단용 gap'으로 명확히 구분했습니다. dockviz가 VHDX를 자동으로 compact하지는 않도록 했는데, Docker Desktop/WSL 상태와 관리자 권한에 따라 위험도가 있어 read-only 진단과 안내만 하는 편이 맞다고 판단했기 때문입니다. 검증은 감으로 끝내지 않고, 같은 label을 가진 4GiB named volume 2개를 실제로 만들어 --all 없이/있이 각각 prune한 뒤, 그 직후 host 여유 공간과 VHDX 크기 변화까지 이어서 측정했습니다.",
-    result: "--all 없이 prune했을 때는 daemon이 **'Total reclaimed space: 0B'** 를 반환하며 두 volume이 그대로 남았고, --all을 명시하자 두 volume 합계 **8.59GB(4.295GB × 2)** 가 정확히 회수됐습니다. 하지만 이 8.59GB를 정리한 직후에도 host 여유 공간은 **13.520GB → 13.512GB**로 사실상 회복되지 않았고, docker_data.vhdx는 **9.375GB**를 그대로 차지하고 있었습니다. Docker daemon이 '지워졌다'고 답해도 Windows는 그 공간을 아직 못 돌려받는다는 걸 같은 검증에서 함께 확인한 셈입니다.",
+    problem: "Disk Usage 패널이 Local Volumes에서 reclaimable 용량을 보여줘도 실제 prune 결과는 **0B로 끝나는** 경우가 있었고, Docker 쪽에서 정상적으로 회수되더라도 Windows Docker Desktop(WSL2)에서는 **C: 드라이브 여유 공간이 바로 돌아오지 않는** 경우가 있어, 두 증상 모두 prune 결과를 신뢰하기 어렵게 만들었습니다.",
+    action: "첫 번째 원인은 Docker API 자체의 기본 동작 변화였습니다. PruneVolumes()가 필터 없이 VolumesPrune을 호출하고 있었는데, **Docker API 1.42부터는** 필터 없는 volume prune 요청을 daemon이 자동으로 anonymous(레이블 없는 익명) volume에만 국한시킵니다(moby의 volume/service/convert.go에서 all=true가 없으면 AnonymousLabel 필터를 강제로 추가). 반면 실무에서 reclaimable로 잡히는 볼륨 대부분은 컨테이너가 삭제된 뒤 남은 **named volume**이라 이 필터에 걸려 한 번도 지워지지 않고 있었습니다. **filters.Arg(\"all\", \"true\")**를 명시적으로 전달하도록 고쳐 패널이 보여주는 대상과 실제로 삭제되는 대상을 일치시켰습니다.\n\n두 번째 원인은 Docker 객체 삭제와 Windows host의 VHDX(docker_data.vhdx) 파일 크기 축소가 서로 다른 과정이라는 데 있었습니다. Docker daemon 안에서는 공간이 회수돼도 **WSL2 VHDX는 compact 전까지** Windows 쪽에 그대로 할당돼 있어, Disk Usage 패널에 Docker reclaimable과는 완전히 분리된 읽기 전용 **Host Storage** 섹션을 추가해 VHDX 실제 크기를 로컬에서 직접 측정해 보여주고, docker system df 기준으로는 설명되지 않는 초과분을 'prune 대상이 아니라 진단용 gap'으로 명확히 구분했습니다. dockviz가 VHDX를 자동으로 compact하지는 않도록 했는데, Docker Desktop/WSL 상태와 관리자 권한에 따라 위험도가 있어 **read-only 진단**과 안내만 하는 편이 맞다고 판단했기 때문입니다.\n\n검증은 감으로 끝내지 않고, 같은 label을 가진 **4GiB named volume 2개**를 실제로 만들어 --all 없이/있이 각각 prune한 뒤, 그 직후 host 여유 공간과 VHDX 크기 변화까지 이어서 측정했습니다.",
+    result: "--all 없이 prune했을 때는 daemon이 **'Total reclaimed space: 0B'** 를 반환하며 두 volume이 그대로 남았고, --all을 명시하자 두 volume 합계 **8.59GB(4.295GB × 2)** 가 정확히 회수됐습니다.\n\n하지만 이 8.59GB를 정리한 직후에도 host 여유 공간은 **13.520GB → 13.512GB**로 사실상 회복되지 않았고, docker_data.vhdx는 **9.375GB**를 그대로 차지하고 있었습니다. Docker daemon이 '지워졌다'고 답해도 Windows는 그 공간을 아직 못 돌려받는다는 걸 같은 검증에서 함께 확인한 셈입니다.",
   },
   {
     number: "02", title: "컨테이너가 늘어날수록 느려지던 새로고침을 오픈소스 조합으로 계층별 해결",
-    problem: "TUI 한 번의 새로고침은 컨테이너·이미지 목록, 컨테이너별 CPU/MEM stats, 문제 신호 계산까지 여러 Docker daemon 조회를 조합해야 하는데, 초기 구현은 컨테이너별 stats를 순서대로(sequential) 조회해 컨테이너 수가 늘수록 새로고침 전체가 그만큼 느려졌습니다.",
-    action: "이 병목을 하나의 트릭이 아니라 오픈소스별로 역할을 나눠 계층적으로 해결했습니다. 가장 아래층에는 Docker Go SDK(github.com/docker/docker)를 두어, docker ps·docker stats 같은 CLI를 매번 새 프로세스로 띄워 텍스트를 파싱하는 대신 daemon API를 typed 객체로 직접 호출하도록 했습니다(internal/docker/*). 그 위에서 오픈소스인 Bubble Tea(charmbracelet/bubbletea)의 tea.Cmd 모델을 그대로 활용해, 무거운 Docker 조회를 TUI 렌더링 루프 밖에서 실행하고 결과만 메시지로 되돌려 화면이 멈추지 않게 했습니다. 실제 체감 속도를 만든 부분은 그 안에서 Go goroutine + sync.WaitGroup + Mutex로 컨테이너별 FetchStats 호출을 병렬화한 것입니다(internal/tui/model.go의 fetchDataCmd) — 순차 방식은 모든 컨테이너의 API 호출 시간이 그대로 누적되지만, 병렬 방식은 가장 느린 호출 하나의 시간에 수렴합니다. 비용이 큰 system/df 조회(fetchDiskUsageCmd)는 병렬화 대신 '조회 시점 분리' 전략을 썼는데, Disk Usage 탭이 열려 있을 때만 실행되도록 제한해 기본 2초 주기 새로고침을 오염시키지 않게 했습니다. compose-go(compose-spec/compose-go)는 이 stats 병목과는 무관하지만, docker compose 명령을 매번 shell-out하지 않고 Compose 파일을 in-process로 해석해 문제 컨테이너의 service·dependency·volume 맥락을 바로 보여주므로, 벤치마크 수치보다는 원인 파악 시간을 줄이는 별도 개선으로 구분해뒀습니다. 검증은 PowerShell job으로는 dockviz의 실제 Go SDK 경로를 재현할 수 없어서, 같은 internal/docker.FetchStats 호출을 순차·병렬로 5회씩 반복하는 Go 벤치마크(scenarios/stats_parallel_benchmark.go)를 직접 작성해 dockviz와 동일한 코드 경로로 돌렸습니다.",
-    result: "1회차 19.494초→2.091초(9.325배), 2회차 20.092초→2.436초(8.248배), 3회차 19.580초→1.936초(10.113배), 4회차 21.141초→1.879초(11.248배), 5회차 18.343초→1.949초(9.409배)로, 5회 평균 순차 **19.730초**가 병렬 **2.058초**로 줄어 평균 **9.585배** 빨랐습니다. Docker Go SDK와 조회 시점 분리는 이 수치에 직접 잡히진 않지만, CLI 프로세스 기동·텍스트 파싱 비용과 불필요한 daemon 호출을 구조적으로 없앤 부분입니다.",
+    problem: "TUI 한 번의 새로고침은 컨테이너·이미지 목록, 컨테이너별 CPU/MEM stats, 문제 신호 계산까지 여러 Docker daemon 조회를 조합해야 하는데, 초기 구현은 컨테이너별 stats를 **순서대로(sequential)** 조회해 컨테이너 수가 늘수록 새로고침 전체가 그만큼 느려졌습니다.",
+    action: "이 병목을 하나의 트릭이 아니라 오픈소스별로 역할을 나눠 계층적으로 해결했습니다. 가장 아래층에는 **Docker Go SDK**(github.com/docker/docker)를 두어, docker ps·docker stats 같은 CLI를 매번 새 프로세스로 띄워 텍스트를 파싱하는 대신 daemon API를 typed 객체로 직접 호출하도록 했습니다(internal/docker/*).\n\n그 위에서 오픈소스인 **Bubble Tea**(charmbracelet/bubbletea)의 tea.Cmd 모델을 그대로 활용해, 무거운 Docker 조회를 TUI 렌더링 루프 밖에서 실행하고 결과만 메시지로 되돌려 화면이 멈추지 않게 했습니다.\n\n실제 체감 속도를 만든 부분은 그 안에서 **Go goroutine + sync.WaitGroup + Mutex**로 컨테이너별 FetchStats 호출을 병렬화한 것입니다(internal/tui/model.go의 fetchDataCmd) — 순차 방식은 모든 컨테이너의 API 호출 시간이 그대로 누적되지만, 병렬 방식은 가장 느린 호출 하나의 시간에 수렴합니다.\n\n비용이 큰 system/df 조회(fetchDiskUsageCmd)는 병렬화 대신 **'조회 시점 분리'** 전략을 썼는데, Disk Usage 탭이 열려 있을 때만 실행되도록 제한해 기본 2초 주기 새로고침을 오염시키지 않게 했습니다.\n\n**compose-go**(compose-spec/compose-go)는 이 stats 병목과는 무관하지만, docker compose 명령을 매번 shell-out하지 않고 Compose 파일을 in-process로 해석해 문제 컨테이너의 service·dependency·volume 맥락을 바로 보여주므로, 벤치마크 수치보다는 원인 파악 시간을 줄이는 별도 개선으로 구분해뒀습니다.\n\n검증은 PowerShell job으로는 dockviz의 실제 Go SDK 경로를 재현할 수 없어서, 같은 internal/docker.FetchStats 호출을 순차·병렬로 5회씩 반복하는 Go 벤치마크(scenarios/stats_parallel_benchmark.go)를 직접 작성해 dockviz와 동일한 코드 경로로 돌렸습니다.",
+    result: "1회차 19.494초→2.091초(9.325배), 2회차 20.092초→2.436초(8.248배), 3회차 19.580초→1.936초(10.113배), 4회차 21.141초→1.879초(11.248배), 5회차 18.343초→1.949초(9.409배)로, 5회 평균 순차 **19.730초**가 병렬 **2.058초**로 줄어 평균 **9.585배** 빨랐습니다.\n\nDocker Go SDK와 조회 시점 분리는 이 수치에 직접 잡히진 않지만, **CLI 프로세스 기동·텍스트 파싱 비용**과 불필요한 daemon 호출을 구조적으로 없앤 부분입니다.",
   },
 ];
 
@@ -177,12 +177,18 @@ function highlight(text: string) {
   );
 }
 
+function paragraphs(text: string) {
+  return text.split("\n\n").map((para, i) => <p key={i}>{highlight(para)}</p>);
+}
+
 function TroubleshootingCard({ item }: { item: TroubleshootingItem }) {
   return (
     <article className="troubleshooting-card">
       <div className="troubleshooting-heading"><span className="problem-number">{item.number}</span><h3>{item.title}</h3></div>
       <div className="troubleshooting-copy">
-        <p><b>문제</b>{highlight(item.problem)}</p><p><b>해결</b>{highlight(item.action)}</p>{item.result && <p><b>결과</b>{highlight(item.result)}</p>}
+        <div className="troubleshooting-block"><b>문제</b><div className="troubleshooting-text">{paragraphs(item.problem)}</div></div>
+        <div className="troubleshooting-block"><b>해결</b><div className="troubleshooting-text">{paragraphs(item.action)}</div></div>
+        {item.result && <div className="troubleshooting-block"><b>결과</b><div className="troubleshooting-text">{paragraphs(item.result)}</div></div>}
       </div>
     </article>
   );
