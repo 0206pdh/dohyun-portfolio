@@ -122,6 +122,12 @@ a { color: inherit; }
 .evidence-table th:first-child, .evidence-table td:first-child { text-align: left; }
 .evidence-table thead th { color: var(--muted); font-size: 10.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; border-bottom: 1px solid var(--ink); }
 .evidence-table tbody tr.evidence-row-flag td { color: var(--orange); font-weight: 700; }
+.fit-matrix { min-width: 0; table-layout: fixed; }
+.fit-matrix th, .fit-matrix td { white-space: normal; vertical-align: top; text-align: left; font-size: 12px; line-height: 1.6; }
+.fit-matrix td:first-child, .fit-matrix th:first-child { width: 15%; font-weight: 800; color: var(--ink); }
+.fit-matrix td.fit-cell-pending { text-align: center; color: var(--muted); font-style: italic; }
+.subsection-lead { max-width: 760px; margin: 30px 0 0; color: #4f5951; font-size: 13px; line-height: 1.7; }
+.profile-config-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 20px; }
 .reflection-sheet { background: #fdfefc; }
 .reflection-grid { display: grid; grid-template-columns: .85fr 1.15fr; gap: 50px; align-items: center; }
 .quote-block { padding: 24px 0 24px 26px; border-left: 3px solid var(--orange); }
@@ -150,6 +156,8 @@ a { color: inherit; }
   .dockviz-figures-row { grid-template-columns: 1fr; max-width: none; }
   .principles { grid-template-columns: 1fr; gap: 14px; }
   .bar-comparison div { grid-template-columns: 116px 1fr 58px; }
+  .profile-config-grid { grid-template-columns: 1fr; }
+  .fit-matrix { min-width: 720px; }
 }
 @media (max-width: 480px) {
   body { font-size: 13px; }

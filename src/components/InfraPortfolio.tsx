@@ -133,33 +133,7 @@ const meshTroubleshooting: TroubleshootingItem[] = [
     number: "01", title: "정밀도 기준이 못 버틸 걸 계산으로 미리 예측하고, 반복측정 정책 자체를 다시 설계",
     problem: "Capacity discovery로 usable capacity(C\\*=28 RPS)를 찾은 뒤, 이 절대 RPS(8/17/22)로 No-Mesh 정식 반복측정을 시작했습니다. 그런데 사전에 정해둔 정밀도 기준(p95 상대 반폭 ≤5%, p99 ≤10%, CPU ≤5%)이 9~11회 시점에 **12~36%**로, 기준 대비 **2~7배** 벗어나 있었습니다. 1/√n 수렴 속도로 15회 상한 도달 시점의 값을 미리 계산해보니, 이대로면 상한을 다 채워도 대부분 통과하지 못할 것으로 예측됐습니다.",
     action: "무작정 반복 횟수를 늘리는 임시방편 대신 원인부터 짚었습니다. 이 클러스터(노드당 allocatable 2 vCPU)의 latency 자체가 **25~45ms대**로 작아서, 상대 비율 기준이 몇 ms 안 되는 절대 오차를 과장하고 있었던 것입니다. 상대 기준은 유지하되 절대(ms/core-s) 기준을 OR 조건으로 추가하는 ADR을 세워 정책을 바꿨고, 이미 돌고 있던 측정 프로세스가 구버전 기준을 메모리에 들고 있어 불필요하게 재측정할 위험까지 발견해 warm-up 구간(측정 낭비가 가장 적은 시점)에 맞춰 안전하게 재시작했습니다.",
-    result: "정책 변경만으로 재계산하자 high 조건이 곧바로 통과 판정을 받으며 실효성이 확인됐습니다. 반면 nominal 조건은 15회 상한까지 다 채웠는데도 p99 절대 반폭(9.08ms)이 기준(8ms)을 **8.9%** 초과해, 억지로 통과시키지 않고 결론을 명시적으로 유보했습니다. 이렇게 확정된 8/17/22 RPS는 이후 Sidecar·Ambient·Waypoint 어떤 profile을 측정하든 **다시 낮추지 않고 그대로 재사용**하는 절대 기준이 됐습니다 — 그래야 '동일 조건에서 워크로드별 비용을 비교했다'는 결론이 성립하기 때문입니다.",
-    code: {
-      caption: "experiments/analysis.py — 절대·상대 혼합 정밀도 게이트(하이브리드 OR 조건)",
-      content: `POLICY = {
-    "minimumValidRuns": 10,
-    "maximumValidRuns": 15,
-    "bootstrapResamples": 10_000,
-    "confidenceLevel": 0.95,
-    # A metric passes if EITHER the relative half-width or the absolute
-    # half-width threshold is met. Relative-only thresholds overstate
-    # noise on this cluster's small (~25-40ms) baseline latencies.
-    "precision": {
-        "p95Ms": {"relative": 0.05, "absolute": 5.0},
-        "p99Ms": {"relative": 0.10, "absolute": 8.0},
-        "cpuCoreSecondsPerRequest": {"relative": 0.05, "absolute": 0.01},
-    },
-}
-
-if valid_count < POLICY["minimumValidRuns"]:
-    decision = "CONTINUE"
-elif all(item["passed"] for item in precision.values()):
-    decision = "STOP_PRECISION_REACHED"
-elif valid_count >= POLICY["maximumValidRuns"]:
-    decision = "INCONCLUSIVE_MAX_RUNS"
-else:
-    decision = "CONTINUE"`,
-    },
+    result: "정책 변경만으로 재계산하자 high 조건이 곧바로 통과 판정을 받으며 실효성이 확인됐습니다. 반면 nominal 조건은 15회 상한까지 다 채웠는데도 p99 절대 반폭(9.08ms)이 기준(8ms)을 **8.9%** 초과해, 억지로 통과시키지 않고 결론을 명시적으로 유보했습니다. 이렇게 확정된 8/17/22 RPS는 이후 Sidecar·Ambient·Waypoint 어떤 profile을 측정하든 **다시 낮추지 않고 그대로 재사용**하는 절대 기준이 됐습니다 — 그래야 '동일 조건에서 워크로드별 비용을 비교했다'는 결론이 성립하기 때문입니다. 아래 실측 로그가 이 판단의 원본입니다.",
   },
   {
     number: "02", title: "가장 유력해 보이던 가설(mTLS)을 직접 꺼서 검증하고, 실제로 기각",
@@ -167,29 +141,17 @@ else:
     action: "이 가설을 인상으로 남겨두지 않고 직접 검증했습니다. PeerAuthentication으로 mTLS를 **DISABLE**하고 나머지는 전부 고정한 채, nominal(8 RPS) 조건에서 정식 10~15회 반복측정을 새로 돌렸습니다 — 기존 PERMISSIVE 측정이 15회 상한까지도 정밀도를 통과하지 못했던 것과 달리, 이번엔 **10회 만에** 통과했습니다.",
     result: "결과는 가설을 기각했습니다. mTLS를 꺼도 network bytes/request는 겨우 **341바이트(약 1%)**만 줄었습니다 — Sidecar 전체 오버헤드(49%) 중 mTLS가 설명하는 부분은 최대 3% 남짓이라는 뜻입니다. 측정 도중 latency가 오히려 나빠지는(p95 +12.4ms) 뜻밖의 결과도 나왔지만, 비교 대상이던 기존 baseline과 현재 클러스터의 **Istio 버전이 서로 달랐다**는 confound를 뒤늦게 발견해, 이 latency 결과에는 '확정 아님' 꼬리표를 붙이고 network bytes 결론만 유지했습니다. 그럴듯해 보이는 첫 번째 가설이 실제로는 틀렸다는 것을 직접 측정으로 확인하고, 성공 스토리로 포장하지 않고 그대로 정직하게 기록했습니다.",
     code: {
-      caption: "experiments/compare_profiles.py — profile 간 독립 2-표본 bootstrap 비교",
-      content: `def bootstrap_difference_ci(values_a: list[float], values_b: list[float], seed: int,
-                             resamples: int = 10_000, confidence: float = 0.95) -> dict:
-    """Two-sample bootstrap CI for median(b) - median(a).
+      caption: "deploy/environments/sidecar-mtls-disabled/values.yaml — 이 profile 하나로 가설을 검증",
+      content: `profile: sidecar-mtls-disabled
 
-    The two groups are resampled independently (not index-paired) because
-    runs across profiles were never executed in matched blocks -- each
-    profile's canonical baseline is its own independent measurement session.
-    """
-    rng = random.Random(seed)
-    differences = []
-    for _ in range(resamples):
-        resample_a = rng.choices(values_a, k=len(values_a))
-        resample_b = rng.choices(values_b, k=len(values_b))
-        differences.append(_median(resample_b) - _median(resample_a))
-    alpha = (1 - confidence) / 2
-    low = percentile(differences, alpha)
-    high = percentile(differences, 1 - alpha)
-    return {
-        "medianDifference": _median(values_b) - _median(values_a),
-        "confidenceInterval95": {"low": low, "high": high},
-        "significant": low > 0 or high < 0,
-    }`,
+global:
+  tracingSamplingProbability: "1.0"
+
+sidecar:
+  enabled: true
+  istioNamespace: istio-system
+  xdsPort: 15012
+  mtlsMode: DISABLE`,
     },
   },
   {
@@ -240,6 +202,123 @@ function CapacityDiscoveryEvidence() {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+type MeshFitRow = { workload: string; noMesh?: string; sidecar?: string; ambient?: string; waypoint?: string; pendingNote?: string };
+
+const meshFitRows: MeshFitRow[] = [
+  {
+    workload: "Sync Chain",
+    noMesh: "기준선 확정 (8/17/22 RPS, 10~15회 반복)",
+    sidecar: "network bytes +49%/req 확인, latency 차이는 노이즈 하한 이하",
+    ambient: "network bytes +1~2%/req, replica 증가 시 latency 저하 방향성 신호",
+    waypoint: "연결 결함(NetworkPolicy) 해결 완료 · 정식 반복측정 예정",
+  },
+  { workload: "Fan-out", pendingNote: "워크로드 구현 완료 · Phase 11 정식 반복측정 예정" },
+  { workload: "Async (Kafka)", pendingNote: "워크로드 구현 완료 · Phase 11 정식 반복측정 예정" },
+  { workload: "Payload", pendingNote: "워크로드 구현 완료 · Phase 11 정식 반복측정 예정" },
+  { workload: "Mixed-Resource", pendingNote: "워크로드 구현 완료 · Phase 11 정식 반복측정 예정" },
+];
+
+function WorkloadMeshFitMatrix() {
+  return (
+    <div className="evidence-table-wrap">
+      <p className="evidence-code-caption">Workload × Mesh Profile — 지금까지 검증된 것과 남은 것 (최종 선택 Matrix는 Phase 11에서 확정 예정)</p>
+      <table className="evidence-table fit-matrix">
+        <thead>
+          <tr><th>워크로드</th><th>No-Mesh</th><th>Sidecar</th><th>Ambient</th><th>Waypoint</th></tr>
+        </thead>
+        <tbody>
+          {meshFitRows.map((row) => (
+            <tr key={row.workload}>
+              <td>{row.workload}</td>
+              {row.pendingNote ? (
+                <td colSpan={4} className="fit-cell-pending">{row.pendingNote}</td>
+              ) : (
+                <>
+                  <td>{row.noMesh}</td>
+                  <td>{row.sidecar}</td>
+                  <td>{row.ambient}</td>
+                  <td>{row.waypoint}</td>
+                </>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const profileConfigs = [
+  {
+    profile: "no-mesh",
+    caption: "deploy/environments/no-mesh/values.yaml",
+    content: `profile: no-mesh
+
+global:
+  tracingSamplingProbability: "1.0"`,
+  },
+  {
+    profile: "sidecar",
+    caption: "deploy/environments/sidecar/values.yaml",
+    content: `profile: sidecar
+
+global:
+  tracingSamplingProbability: "1.0"
+
+sidecar:
+  enabled: true
+  istioNamespace: istio-system
+  xdsPort: 15012`,
+  },
+  {
+    profile: "ambient",
+    caption: "deploy/environments/ambient/values.yaml",
+    content: `profile: ambient
+
+global:
+  tracingSamplingProbability: "1.0"
+
+sidecar:
+  enabled: false
+
+ambient:
+  enabled: true
+  hbonePort: 15008`,
+  },
+  {
+    profile: "waypoint",
+    caption: "deploy/environments/waypoint/values.yaml",
+    content: `profile: waypoint
+
+global:
+  tracingSamplingProbability: "1.0"
+
+sidecar:
+  enabled: false
+
+ambient:
+  enabled: true
+  hbonePort: 15008
+
+waypoint:
+  enabled: true
+  orchestratorGatewayName: orchestrator-waypoint`,
+  },
+];
+
+function ProfileConfigGrid() {
+  return (
+    <div className="profile-config-grid">
+      {profileConfigs.map((item) => (
+        <div className="evidence-code-wrap" key={item.profile}>
+          <p className="evidence-code-caption">{item.caption}</p>
+          <pre className="evidence-code"><code>{item.content}</code></pre>
+        </div>
+      ))}
     </div>
   );
 }
@@ -442,11 +521,14 @@ export function InfraPortfolio() {
       <section className="project-sheet">
         <SectionTitle eyebrow="02 · Role & Engineering" title="벤치마크 플랫폼을 설계부터 운영까지 직접 만들다" />
         <div className="role-layout"><div><h3 className="subheading">주요 구현 및 역할</h3><ul className="check-list">{meshResponsibilities.map((item) => <li key={item}>{item}</li>)}</ul></div></div>
+        <p className="subsection-lead">4개 profile은 같은 Helm 차트에서 이 values.yaml 한 겹만 바뀝니다 — sidecar.enabled를 끄면 Ambient가 되고, 거기에 waypoint 블록만 얹으면 Waypoint가 됩니다. 워크로드·리소스·NetworkPolicy는 그대로 두고 이 값만 바뀐다는 것이 &ldquo;워크로드별 mesh 비용을 공정하게 비교했다&rdquo;고 주장할 수 있는 근거입니다.</p>
+        <ProfileConfigGrid />
       </section>
 
       <section className="project-sheet troubleshooting-sheet">
-        <SectionTitle eyebrow="03 · Key Verifications" title="가설을 세우고, 실측으로 검증하거나 기각한 3가지 발견" />
-        <p className="architecture-overview-lead">결론만 남기지 않고 결론을 만든 원본도 함께 남깁니다. capacity discovery 원본 로그와, 정밀도 게이트·profile 비교·NetworkPolicy 수정에 실제로 쓰인 코드입니다.</p>
+        <SectionTitle eyebrow="03 · Workload → Mesh Verification" title="워크로드별로 어떤 Mesh가 맞는지 — 검증된 것과, 검증할 것" />
+        <p className="architecture-overview-lead">아래 매트릭스가 이 프로젝트가 최종적으로 답해야 하는 것입니다. Sync Chain은 No-Mesh·Sidecar·Ambient 정식 반복측정과 Waypoint 연결 검증까지 마쳤고, 나머지 4개 워크로드는 벤치마크 구현은 끝났지만 Phase 11 정식 반복측정이 아직 남아 있습니다 — 끝난 것과 안 끝난 것을 그대로 구분해서 보여줍니다. 그 아래는 지금까지의 검증 과정에서 나온 원본 로그와 실제 설정입니다.</p>
+        <WorkloadMeshFitMatrix />
         <CapacityDiscoveryEvidence />
         <div className="troubleshooting-grid">{meshTroubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div>
       </section>
