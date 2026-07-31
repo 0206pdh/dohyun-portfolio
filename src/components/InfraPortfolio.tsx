@@ -89,16 +89,10 @@ const dockvizTroubleshooting: TroubleshootingItem[] = [
     result: "--all 없이 prune했을 때는 daemon이 **'Total reclaimed space: 0B'** 를 반환하며 두 volume이 그대로 남았고, --all을 명시하자 두 volume 합계 **8.59GB(4.295GB × 2)** 가 정확히 회수됐습니다. 하지만 이 8.59GB를 정리한 직후에도 host 여유 공간은 **13.520GB → 13.512GB**로 사실상 회복되지 않았고, docker_data.vhdx는 **9.375GB**를 그대로 차지하고 있었습니다. Docker daemon이 '지워졌다'고 답해도 Windows는 그 공간을 아직 못 돌려받는다는 걸 같은 검증에서 함께 확인한 셈입니다.",
   },
   {
-    number: "02", title: "이미지 태그 하나만 지웠는데 다른 태그까지 삭제된 문제",
-    problem: "이미지 태그 하나만 지우려고 삭제를 눌렀는데, 같은 이미지 ID에 걸린 다른 태그까지 함께 삭제되는 문제가 있었습니다.",
-    action: "ImageRemove를 Force: true로 호출하고 있었는데, 이 옵션은 다른 태그가 남아 있어도 이미지 자체를 강제로 지웁니다. Force: false로 바꿔 태그 하나만 제거(untag)하고 다른 태그가 남아 있으면 실제 이미지는 보존되도록 했고, 삭제 확인창에 멀티태그 경고 문구를 추가했습니다. 같은 개선에서 이미지 목록도 태그 하나당 한 줄로 분리하고(이전에는 여러 태그가 한 줄에 뭉쳐 표시됨) 알파벳순으로 정렬했습니다. 검증은 캐시 재사용을 막기 위해 --no-cache로 768MiB payload(dd if=/dev/zero bs=1M count=768)를 굽는 이미지를 새로 빌드해, 같은 이미지 ID에 :keep·:remove 두 태그를 걸고 :remove만 삭제하는 방식으로 재현했습니다.",
-    result: "빌드된 두 이미지(:keep, :remove)는 각각 **813MB**였고, 삭제 로그에는 'Untagged: ...:remove'만 남았습니다. 검증 결과 keptTagExistsAfterRemove=true·removedTagExistsAfterRemove=false로 :keep 태그와 813MB 레이어는 그대로, :remove 태그만 정확히 사라진 것을 확인했습니다. 같은 검증에서 이 빌드가 남긴 BuildKit build cache **806.1MB**는 이미지 삭제와 무관하게 그대로 남아 있어, dockviz Disk Usage가 Build Cache를 Images와 별도 행으로 추적해야 하는 이유도 함께 확인했습니다.",
-  },
-  {
-    number: "03", title: "컨테이너가 늘어날수록 새로고침이 느려지던 문제를 오픈소스 동시성 모델로 해결",
-    problem: "컨테이너별 CPU/MEM stats를 순서대로(sequential) 조회했는데, 컨테이너 수가 늘수록 새로고침 전체가 그만큼 느려졌습니다.",
-    action: "원인은 Docker의 단발성 stats API(ContainerStats with stream=false) 자체에 있었습니다. CPU 사용률은 두 시점의 cgroup 값을 비교해야 계산할 수 있는데(internal/docker/containers.go의 calcCPUPercent가 CPUStats·PreCPUStats 델타로 계산), daemon이 그 두 표본을 확보하는 데만 호출 1건당 약 1초가 걸려 이 지연은 컨테이너 수에 비례해 누적됐습니다. 오픈소스인 Bubble Tea가 제공하는 비동기 tea.Cmd 모델 위에서, 컨테이너·이미지 목록 조회와 컨테이너별 stats 조회를 각각 Go goroutine + sync.WaitGroup으로 병렬화해(internal/tui/model.go의 fetchDataCmd) 이 지연이 순차 누적되지 않고 동시에 겹치도록 바꿨습니다. 같은 맥락에서 비용이 큰 system/df 호출(fetchDiskUsageCmd)도 Disk Usage 탭이 열려 있을 때만 실행되도록 제한해, 기본 2초 주기 새로고침에는 부담을 주지 않게 했습니다. 검증은 PowerShell job이 아니라 dockviz와 동일한 Go SDK 경로(internal/docker.FetchStats)로, 같은 컨테이너 12개에 대해 순차 호출과 병렬 호출을 5회씩 반복 측정했습니다.",
-    result: "1회차 19.494초→2.091초(9.325배), 2회차 20.092초→2.436초(8.248배), 3회차 19.580초→1.936초(10.113배), 4회차 21.141초→1.879초(11.248배), 5회차 18.343초→1.949초(9.409배)로, 5회 평균 순차 **19.730초**가 병렬 **2.058초**로 줄어 평균 **9.585배** 빨랐습니다.",
+    number: "02", title: "컨테이너가 늘어날수록 느려지던 새로고침을 오픈소스 조합으로 계층별 해결",
+    problem: "TUI 한 번의 새로고침은 컨테이너·이미지 목록, 컨테이너별 CPU/MEM stats, 문제 신호 계산까지 여러 Docker daemon 조회를 조합해야 하는데, 초기 구현은 컨테이너별 stats를 순서대로(sequential) 조회해 컨테이너 수가 늘수록 새로고침 전체가 그만큼 느려졌습니다.",
+    action: "이 병목을 하나의 트릭이 아니라 오픈소스별로 역할을 나눠 계층적으로 해결했습니다. 가장 아래층에는 Docker Go SDK(github.com/docker/docker)를 두어, docker ps·docker stats 같은 CLI를 매번 새 프로세스로 띄워 텍스트를 파싱하는 대신 daemon API를 typed 객체로 직접 호출하도록 했습니다(internal/docker/*). 그 위에서 오픈소스인 Bubble Tea(charmbracelet/bubbletea)의 tea.Cmd 모델을 그대로 활용해, 무거운 Docker 조회를 TUI 렌더링 루프 밖에서 실행하고 결과만 메시지로 되돌려 화면이 멈추지 않게 했습니다. 실제 체감 속도를 만든 부분은 그 안에서 Go goroutine + sync.WaitGroup + Mutex로 컨테이너별 FetchStats 호출을 병렬화한 것입니다(internal/tui/model.go의 fetchDataCmd) — 순차 방식은 모든 컨테이너의 API 호출 시간이 그대로 누적되지만, 병렬 방식은 가장 느린 호출 하나의 시간에 수렴합니다. 비용이 큰 system/df 조회(fetchDiskUsageCmd)는 병렬화 대신 '조회 시점 분리' 전략을 썼는데, Disk Usage 탭이 열려 있을 때만 실행되도록 제한해 기본 2초 주기 새로고침을 오염시키지 않게 했습니다. compose-go(compose-spec/compose-go)는 이 stats 병목과는 무관하지만, docker compose 명령을 매번 shell-out하지 않고 Compose 파일을 in-process로 해석해 문제 컨테이너의 service·dependency·volume 맥락을 바로 보여주므로, 벤치마크 수치보다는 원인 파악 시간을 줄이는 별도 개선으로 구분해뒀습니다. 검증은 PowerShell job으로는 dockviz의 실제 Go SDK 경로를 재현할 수 없어서, 같은 internal/docker.FetchStats 호출을 순차·병렬로 5회씩 반복하는 Go 벤치마크(scenarios/stats_parallel_benchmark.go)를 직접 작성해 dockviz와 동일한 코드 경로로 돌렸습니다.",
+    result: "1회차 19.494초→2.091초(9.325배), 2회차 20.092초→2.436초(8.248배), 3회차 19.580초→1.936초(10.113배), 4회차 21.141초→1.879초(11.248배), 5회차 18.343초→1.949초(9.409배)로, 5회 평균 순차 **19.730초**가 병렬 **2.058초**로 줄어 평균 **9.585배** 빨랐습니다. Docker Go SDK와 조회 시점 분리는 이 수치에 직접 잡히진 않지만, CLI 프로세스 기동·텍스트 파싱 비용과 불필요한 daemon 호출을 구조적으로 없앤 부분입니다.",
   },
 ];
 
@@ -249,7 +243,7 @@ export function InfraPortfolio() {
         <div className="role-layout"><div><h3 className="subheading">주요 구현 및 역할</h3><ul className="check-list">{dockvizResponsibilities.map((item) => <li key={item}>{item}</li>)}</ul></div><DockvizFigures /></div>
       </section>
 
-      <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="03 · Key Fixes" title="검증까지 마친 핵심 개선 3가지" /><div className="troubleshooting-grid">{dockvizTroubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
+      <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="03 · Key Fixes" title="검증까지 마친 핵심 개선 2가지" /><div className="troubleshooting-grid">{dockvizTroubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
 
       <footer className="portfolio-footer"><span>DoHyun · Cloud Infrastructure Engineer</span><span>© {new Date().getFullYear()}</span></footer>
     </main>
