@@ -96,6 +96,71 @@ const dockvizTroubleshooting: TroubleshootingItem[] = [
   },
 ];
 
+const meshStack = [
+  { label: "Java", icon: "/images/icons/java.svg" },
+  { label: "Spring Boot", icon: "/images/icons/springboot.svg" },
+  { label: "Kubernetes", icon: "/images/icons/kubernetes.svg" },
+  { label: "Istio", icon: "/images/icons/istio.svg" },
+  { label: "Cilium", icon: "/images/icons/cilium.svg" },
+  { label: "k6", icon: "/images/icons/k6.svg" },
+  { label: "Python", icon: "/images/icons/python.svg" },
+  { label: "Prometheus", icon: "/images/icons/prometheus.svg" },
+  { label: "Grafana", icon: "/images/icons/grafana.svg" },
+  { label: "Helm", icon: "/images/icons/helm.svg" },
+];
+
+const meshWorkloadPillars = [
+  { title: "Sync Chain", detail: "gateway→hop-a→hop-b→hop-c 3-hop 동기 체인으로, hop마다 겹겹이 붙는 proxy 왕복과 mTLS 핸드셰이크 누적 비용이 latency에 어떻게 쌓이는지를 봅니다." },
+  { title: "Fan-out", detail: "orchestrator가 target 4개를 병렬 호출해, 부분 실패 상황에서 애플리케이션과 Mesh의 retry가 겹칠 때 tail latency와 호출량이 증폭되는지 관찰합니다." },
+  { title: "Async (Kafka)", detail: "producer→Kafka→worker 비동기 경로로, Mesh의 L7 기능이 닿지 않는 워크로드에서 CPU 기반 HPA가 큐 적체에 반응하지 못하는 구조적 한계를 재현합니다." },
+  { title: "Payload", detail: "대용량 payload를 gateway→processor→storage로 흘려보내, 요청 크기가 커질 때 proxy CPU·네트워크 바이트 비용이 어떻게 늘어나는지 분리해서 봅니다." },
+  { title: "Mixed-Resource", detail: "CPU·Memory·I/O를 독립적으로 부하 줄 수 있는 target으로, 자원 경합과 throttling이 애플리케이션과 프록시 중 어디서 발생하는지 구분합니다." },
+  { title: "Capacity Discovery & Precision Gate", detail: "5개 패턴 모두 절대 RPS를 정하기 전 geometric+binary search로 포화점(C*)을 먼저 찾고, bootstrap 95% CI가 사전에 정한 정밀도를 통과해야만 profile 간 비교 가능한 조건으로 인정합니다." },
+];
+
+const meshResponsibilities = [
+  "Java 25 + Spring Boot 4.1로 gateway·orchestrator·producer·worker·workload-target 5개 서비스를 구현해 Sync Chain/Fan-out/Async/Payload/Mixed 5가지 통신 패턴을 재현",
+  "Python 기반 Experiment Runner(약 1,600줄)를 구현해 Helm profile 적용부터 Ground Truth 기록, Prometheus·Loki·Tempo·Hubble 조회, raw·summary·report 저장까지 측정 전 과정을 자동화",
+  "Geometric+binary search capacity discovery와 seeded randomized block, bootstrap 95% CI 정지 규칙으로 반복측정 정책을 직접 설계하고 ADR로 근거를 기록",
+  "VMware Workstation 3-VM(control-plane 1 + worker 2) Kubernetes 1.36을 kubeadm으로 직접 구축하고 Cilium CNI/Gateway·MetalLB·Prometheus/Grafana/Loki/Tempo/OTel 관측 스택을 얹음",
+  "Istio Sidecar → Ambient → Waypoint 3가지 데이터플레인을 순서대로 설치·검증하며 실제 호환성 결함(probe 캡처로 인한 crash-loop, NetworkPolicy HBONE 포트 누락)을 근본 원인까지 추적해 해결",
+  "App·Sidecar·ztunnel·Waypoint 자원을 분리 수집하고, 독립 2-표본 bootstrap 비교 도구를 직접 구현해 profile 간 통계적으로 유의한 차이만 결론으로 채택",
+];
+
+const meshTroubleshooting: TroubleshootingItem[] = [
+  {
+    number: "01", title: "정밀도 기준이 못 버틸 걸 계산으로 미리 예측하고, 반복측정 정책 자체를 다시 설계",
+    problem: "Capacity discovery로 usable capacity(C\\*=28 RPS)를 찾은 뒤, 이 절대 RPS(8/17/22)로 No-Mesh 정식 반복측정을 시작했습니다. 그런데 사전에 정해둔 정밀도 기준(p95 상대 반폭 ≤5%, p99 ≤10%, CPU ≤5%)이 9~11회 시점에 **12~36%**로, 기준 대비 **2~7배** 벗어나 있었습니다. 1/√n 수렴 속도로 15회 상한 도달 시점의 값을 미리 계산해보니, 이대로면 상한을 다 채워도 대부분 통과하지 못할 것으로 예측됐습니다.",
+    action: "무작정 반복 횟수를 늘리는 임시방편 대신 원인부터 짚었습니다. 이 클러스터(노드당 allocatable 2 vCPU)의 latency 자체가 **25~45ms대**로 작아서, 상대 비율 기준이 몇 ms 안 되는 절대 오차를 과장하고 있었던 것입니다. 상대 기준은 유지하되 절대(ms/core-s) 기준을 OR 조건으로 추가하는 ADR을 세워 정책을 바꿨고, 이미 돌고 있던 측정 프로세스가 구버전 기준을 메모리에 들고 있어 불필요하게 재측정할 위험까지 발견해 warm-up 구간(측정 낭비가 가장 적은 시점)에 맞춰 안전하게 재시작했습니다.",
+    result: "정책 변경만으로 재계산하자 high 조건이 곧바로 통과 판정을 받으며 실효성이 확인됐습니다. 반면 nominal 조건은 15회 상한까지 다 채웠는데도 p99 절대 반폭(9.08ms)이 기준(8ms)을 **8.9%** 초과해, 억지로 통과시키지 않고 결론을 명시적으로 유보했습니다. 이렇게 확정된 8/17/22 RPS는 이후 Sidecar·Ambient·Waypoint 어떤 profile을 측정하든 **다시 낮추지 않고 그대로 재사용**하는 절대 기준이 됐습니다 — 그래야 '동일 조건에서 워크로드별 비용을 비교했다'는 결론이 성립하기 때문입니다.",
+  },
+  {
+    number: "02", title: "가장 유력해 보이던 가설(mTLS)을 직접 꺼서 검증하고, 실제로 기각",
+    problem: "Profile 간 독립 2-표본 bootstrap 비교(36개 지표 비교) 중 유일하게 3개 부하 조건(8/17/22 RPS) 모두 일관되게 유의했던 지표는 network bytes/request였습니다. Sidecar는 No-Mesh 대비 요청당 **약 49%**(10,200~11,500바이트) 더 많은 바이트를 전송했고, Ambient는 같은 비교에서 **1~2%**만 늘었습니다. 가장 그럴듯한 설명은 'Envoy가 매 hop마다 붙이는 mTLS 핸드셰이크·레코드 오버헤드'였습니다.",
+    action: "이 가설을 인상으로 남겨두지 않고 직접 검증했습니다. PeerAuthentication으로 mTLS를 **DISABLE**하고 나머지는 전부 고정한 채, nominal(8 RPS) 조건에서 정식 10~15회 반복측정을 새로 돌렸습니다 — 기존 PERMISSIVE 측정이 15회 상한까지도 정밀도를 통과하지 못했던 것과 달리, 이번엔 **10회 만에** 통과했습니다.",
+    result: "결과는 가설을 기각했습니다. mTLS를 꺼도 network bytes/request는 겨우 **341바이트(약 1%)**만 줄었습니다 — Sidecar 전체 오버헤드(49%) 중 mTLS가 설명하는 부분은 최대 3% 남짓이라는 뜻입니다. 측정 도중 latency가 오히려 나빠지는(p95 +12.4ms) 뜻밖의 결과도 나왔지만, 비교 대상이던 기존 baseline과 현재 클러스터의 **Istio 버전이 서로 달랐다**는 confound를 뒤늦게 발견해, 이 latency 결과에는 '확정 아님' 꼬리표를 붙이고 network bytes 결론만 유지했습니다. 그럴듯해 보이는 첫 번째 가설이 실제로는 틀렸다는 것을 직접 측정으로 확인하고, 성공 스토리로 포장하지 않고 그대로 정직하게 기록했습니다.",
+  },
+  {
+    number: "03", title: "패킷 레벨까지 내려가서야 보인, Waypoint 연결 실패의 진짜 원인",
+    problem: "Ambient 위에 orchestrator-service 단일 hop만 Waypoint를 경유하도록 배포했는데, gateway→waypoint 홉은 통과했지만 **waypoint→실제 backend pod 홉**은 계속 실패했습니다. Envoy 관리자 API로는 TCP 연결은 성공하는데 HTTP 요청은 즉시 리셋됐고, 이 연결은 ztunnel access log에도 전혀 잡히지 않았습니다. 노드 co-location 가설을 podAntiAffinity로 반증했지만 동일하게 재현됐고, Istio를 완전히 다른 버전(1.30.3→1.29.6)으로 재설치해도 똑같이 실패해, 한때 **'버전 독립적인 근본 아키텍처 비호환'**으로 결론짓고 조사를 종료했습니다.",
+    action: "하지만 이 결론은 다음 날 다시 열어본 조사에서 틀린 것으로 밝혀졌습니다. 이번엔 애플리케이션 로그나 Envoy 통계 대신 처음으로 cilium monitor --type drop으로 **패킷 레벨을 직접** 봤고, 몇 분 만에 'drop (Policy denied) ... :15008 tcp SYN' 로그를 잡았습니다. 원인은 orchestrator-service의 NetworkPolicy가 waypoint로부터의 ingress를 포트 **8080만** 열어두고 HBONE 포트 **15008**을 빠뜨린, 며칠간의 진단 끝에는 허무할 만큼 단순한 템플릿 실수였습니다.",
+    result: "'버전이 달라도 똑같이 실패한다'는 관찰 자체는 맞았지만, 거기서 내린 결론이 틀렸습니다 — NetworkPolicy는 Kubernetes/Cilium 리소스라 Istio를 통째로 재설치해도 전혀 바뀌지 않는데, '재설치로 바뀌지 않은 것'을 의심하는 대신 '재설치로 바뀐 것(Istio 자체)'만 의심했던 것입니다. 포트를 추가하자 **20/20, 이어서 50/50 연속 성공**했고, 이번엔 Waypoint 자체의 rq_total 카운터가 요청 수만큼 실제로 증가하는 것까지 확인해(재배포 직후 5연속 curl 성공이 실은 keep-alive 연결 풀이 Waypoint를 완전히 우회한 거짓 양성이었던 앞선 사례를 교훈 삼아) 이번 성공은 거짓 양성이 아님을 검증했습니다.",
+  },
+];
+
+function MeshWorkloadOverview() {
+  return (
+    <div className="cloud-architecture-grid">
+      {meshWorkloadPillars.map((pillar) => (
+        <div className="cloud-architecture-card" key={pillar.title}>
+          <h4>{pillar.title}</h4>
+          <p>{pillar.detail}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function DockvizPillarOverview() {
   return (
     <div className="cloud-architecture-grid">
@@ -250,6 +315,30 @@ export function InfraPortfolio() {
       </section>
 
       <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="03 · Key Fixes" title="검증까지 마친 핵심 개선 2가지" /><div className="troubleshooting-grid">{dockvizTroubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
+
+      <section className="project-sheet hero-sheet">
+        <div className="project-topline">
+          <div><p className="project-label">개인 프로젝트 · Mesh Performance Lab (msa-servicemesh)</p><h2>어떤 워크로드에 어떤 서비스 메쉬가 맞는지,<br /><em>인상이 아니라 반복측정으로</em> 검증하다</h2><p className="project-period">진행기간 · 2026.07 — 진행 중</p></div>
+          <div className="role-panel"><p>담당 영역</p><strong>Performance Engineering / Platform Verification</strong><span>실험 설계부터 인프라 구축, 통계 분석까지 1인 전체 담당</span></div>
+        </div>
+        <div className="project-summary">
+          <div><h3>프로젝트 목적</h3><p>Service Mesh 도입 여부는 실무에서 종종 &ldquo;느려질 것이다&rdquo;라는 인상이나, 벤더가 유리한 조건(단순 echo, 저부하)에서 낸 벤치마크로 결정됩니다. 하지만 Sidecar와 Ambient의 비용 구조는 동기 체인, 병렬 fan-out, 비동기 큐, 대용량 payload처럼 워크로드의 통신 패턴에 따라 다르게 나타날 것으로 예상되는데, 이를 직접 측정해 비교한 자료는 흔치 않습니다. Mesh Performance Lab은 이 질문에 인상이 아니라, 직접 구축한 VMware 3-node 온프레미스 Kubernetes 위에서 통제 가능한 5종 Java MSA 워크로드와 통계적 정지 규칙을 갖춘 자체 측정 자동화로 답하는 개인 Performance Engineering 프로젝트입니다.</p></div>
+        </div>
+        <div className="stack-row"><span className="stack-title">기술 스택</span>{meshStack.map((item) => <span className="stack-chip" key={item.label}><Image src={item.icon} alt="" width={24} height={24} /><span>{item.label}</span></span>)}</div>
+      </section>
+
+      <section className="project-sheet">
+        <SectionTitle eyebrow="01 · Verification Design" title="워크로드마다 다른 질문을 던지도록 설계한 5가지 통신 패턴" />
+        <p className="architecture-overview-lead">단일 echo 벤치마크로는 &ldquo;워크로드별로 무엇이 다른가&rdquo;라는 질문에 답할 수 없습니다. 그래서 실제 MSA에서 반복적으로 나타나는 5가지 통신 패턴을 Java 마이크로서비스로 직접 구현해, 각 패턴이 서로 다른 Mesh 비용 축(hop 누적 지연, retry 증폭, L7 사각지대, payload 비용, 자원 경합)을 드러내도록 설계했습니다. 그리고 이 5가지 패턴을 Profile(No-Mesh/Sidecar/Ambient/Waypoint) 간에 공정하게 비교하려면, 절대 RPS를 정하기 전에 포화점을 먼저 찾고 통계적 정밀도를 통과한 반복측정만 결론으로 인정하는 별도의 검증 절차가 필요했습니다.</p>
+        <MeshWorkloadOverview />
+      </section>
+
+      <section className="project-sheet">
+        <SectionTitle eyebrow="02 · Role & Engineering" title="벤치마크 플랫폼을 설계부터 운영까지 직접 만들다" />
+        <div className="role-layout"><div><h3 className="subheading">주요 구현 및 역할</h3><ul className="check-list">{meshResponsibilities.map((item) => <li key={item}>{item}</li>)}</ul></div></div>
+      </section>
+
+      <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="03 · Key Verifications" title="가설을 세우고, 실측으로 검증하거나 기각한 3가지 발견" /><div className="troubleshooting-grid">{meshTroubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
 
       <footer className="portfolio-footer"><span>DoHyun · Cloud Infrastructure Engineer</span><span>© {new Date().getFullYear()}</span></footer>
     </main>
