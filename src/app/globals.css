@@ -75,6 +75,7 @@ a { color: inherit; }
 .architecture-figures { display: grid; gap: 24px; margin-bottom: 28px; }
 .architecture-figures figure { margin: 0; }
 .architecture-figures figcaption { margin-bottom: 8px; color: var(--accent); font-size: 12px; font-weight: 800; }
+.dockviz-figures-row { grid-template-columns: repeat(2, 1fr); max-width: 620px; }
 .architecture-image { overflow: hidden; border: 1px solid #cbd5e1; border-radius: 5px; background: #fff; }
 .architecture-image img { display: block; width: 100%; height: auto; }
 .overall-architecture { background: #fff; }
@@ -136,6 +137,7 @@ a { color: inherit; }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
   .cloud-architecture-grid { grid-template-columns: repeat(2, 1fr); }
   .troubleshooting-grid { grid-template-columns: 1fr; }
+  .dockviz-figures-row { grid-template-columns: 1fr; max-width: none; }
   .principles { grid-template-columns: 1fr; gap: 14px; }
   .bar-comparison div { grid-template-columns: 116px 1fr 58px; }
 }
