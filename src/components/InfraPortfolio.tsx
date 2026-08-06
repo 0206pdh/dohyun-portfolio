@@ -126,8 +126,8 @@ const meshResponsibilities = [
   "VMware Workstation 3-VM(control-plane 1 + worker 2) Kubernetes 1.36을 kubeadm으로 직접 구축하고 Cilium CNI/Gateway·MetalLB·Prometheus/Grafana/Loki/Tempo/OTel 관측 스택을 얹음",
   "Istio Sidecar → Ambient → Waypoint 3가지 데이터플레인을 순서대로 설치·검증하며 실제 호환성 결함(probe 캡처로 인한 crash-loop, NetworkPolicy HBONE 포트 누락)을 근본 원인까지 추적해 해결",
   "App·Sidecar·ztunnel·Waypoint 자원을 분리 수집하고, 독립 2-표본 bootstrap 비교 도구를 직접 구현해 profile 간 통계적으로 유의한 차이만 결론으로 채택",
-  "Chaos Mesh 대신 kubectl·기존 앱 파라미터만으로 pod-kill·chain-wide delay 두 fault를 설계해 회복탄력성을 정량 측정(Phase 10)",
-  "2026-08-03 정전으로 etcd가 손상되자 문서와 자동화만으로 클러스터 전체를 재구축하고, manifest→raw→summary→claim 링크를 SHA-256으로 재검증해 Phase 11 재현성 요건을 충족",
+  "Chaos Mesh 대신 kubectl·기존 앱 파라미터만으로 pod-kill·chain-wide delay 두 fault를 설계해 회복탄력성을 정량 측정",
+  "2026-08-03 정전으로 etcd가 손상되자 기록해둔 버전·설정값과 자동화만으로 클러스터 전체를 재구축하고, manifest→raw→summary→claim 링크를 SHA-256으로 재검증해 재현 가능함을 실증",
 ];
 
 const meshTroubleshooting: TroubleshootingItem[] = [
@@ -176,9 +176,9 @@ sidecar:
   },
   {
     number: "04", title: "정전으로 etcd가 깨졌고, 그 복구가 뜻하지 않게 재현성 검증이 됐다",
-    problem: "Phase 10 회복탄력성 데이터 수집을 마친 직후, 호스트 전원이 끊기면서 control-plane 노드의 etcd가 손상됐습니다(bbolt backend가 자신의 consistent-index를 잃고 존재하지 않는 snapshot 파일을 찾다 panic). Kubernetes control-plane부터 Cilium·MetalLB·관측 스택·Istio Ambient·애플리케이션 Helm 릴리스까지, **클러스터 전체를 처음부터 다시 세워야** 했습니다.",
-    action: "손상된 데이터를 먼저 백업한 뒤, kubeadm reset(3노드)→kubeadm init(손상 전 apiserver manifest에서 실측해둔 pod/service CIDR을 그대로 재사용)→worker 재join 순으로 control-plane부터 복구했습니다. 그 위에 Cilium 1.19.6→Gateway API+MetalLB→observability 스택→meshperf Helm(no-mesh values로 먼저 검증)→Istio Ambient→ambient values 전환까지, **문서에 적힌 버전·설정값과 기존 자동화(Helm chart, Python 실험 러너)만으로** 순서대로 다시 쌓아 올렸습니다.",
-    result: "노드 3/3 Ready, Cilium/Hubble/MetalLB 정상, NetworkPolicy 개수가 원래 배포와 **정확히 일치**, SYNC_CHAIN E2E(ping·3-hop chain·fan-out·payload·async)가 전부 통과했고, Python 실험 러너 dry-run도 무효화 요인 없이 `COMPLETED`로 끝났습니다. 측정 데이터 자체는 인시던트 전에 git에 반영돼 있어 전혀 영향받지 않았고, 이 복구 과정 자체가 Phase 11이 요구하던 **'새 환경에서 대표 실험을 재현할 수 있는가'**라는 요건을 계획된 리허설이 아니라 실제 장애 상황에서 증명한 셈이 됐습니다.",
+    problem: "회복탄력성 실험 데이터 수집을 마친 직후, 호스트 전원이 끊기면서 control-plane 노드의 etcd가 손상됐습니다(bbolt backend가 자신의 consistent-index를 잃고 존재하지 않는 snapshot 파일을 찾다 panic). Kubernetes control-plane부터 Cilium·MetalLB·관측 스택·Istio Ambient·애플리케이션 Helm 릴리스까지, **클러스터 전체를 처음부터 다시 세워야** 했습니다.",
+    action: "손상된 데이터를 먼저 백업한 뒤, kubeadm reset(3노드)→kubeadm init(손상 전 apiserver manifest에서 실측해둔 pod/service CIDR을 그대로 재사용)→worker 재join 순으로 control-plane부터 복구했습니다. 그 위에 Cilium 1.19.6→Gateway API+MetalLB→observability 스택→meshperf Helm(no-mesh values로 먼저 검증)→Istio Ambient→ambient values 전환까지, **기록해둔 버전·설정값과 기존 자동화(Helm chart, Python 실험 러너)만으로** 순서대로 다시 쌓아 올렸습니다.",
+    result: "노드 3/3 Ready, Cilium/Hubble/MetalLB 정상, NetworkPolicy 개수가 원래 배포와 **정확히 일치**, SYNC_CHAIN E2E(ping·3-hop chain·fan-out·payload·async)가 전부 통과했고, Python 실험 러너 dry-run도 무효화 요인 없이 `COMPLETED`로 끝났습니다. 측정 데이터 자체는 인시던트 전에 git에 반영돼 있어 전혀 영향받지 않았고, 이 복구 과정 자체가 **'새 환경에서도 같은 결과가 재현되는가'**라는, 원래는 따로 계획했던 검증을 리허설이 아니라 실제 장애 상황에서 증명한 셈이 됐습니다.",
   },
 ];
 
@@ -270,7 +270,7 @@ const meshFitRows: MeshFitRow[] = [
 function WorkloadMeshFitMatrix() {
   return (
     <div className="evidence-table-wrap">
-      <p className="evidence-code-caption">Scenario → Mesh Profile 선택 Matrix — Phase 0~11 전체 완료 후 확정 (VMware 3-node · 노드당 2 vCPU · SYNC_CHAIN 3-hop · 8/17/22 RPS 범위 안에서만 유효)</p>
+      <p className="evidence-code-caption">Scenario → Mesh Profile 선택 Matrix — 전체 실험 종료 후 확정 (VMware 3-node · 노드당 2 vCPU · SYNC_CHAIN 3-hop · 8/17/22 RPS 범위 안에서만 유효)</p>
       <table className="evidence-table fit-matrix">
         <thead>
           <tr><th>시나리오 / 요구사항</th><th>권장</th><th>근거 · 비용</th><th>Rollback 기준</th></tr>
@@ -541,11 +541,11 @@ export function InfraPortfolio() {
 
       <section className="project-sheet hero-sheet">
         <div className="project-topline">
-          <div><p className="project-label">개인 프로젝트 · Mesh Performance Lab (msa-servicemesh)</p><h2>어떤 워크로드에 어떤 서비스 메쉬가 맞는지,<br /><em>인상이 아니라 반복측정으로</em> 검증하다</h2><p className="project-period">진행기간 · 2026.07 — 2026.08 (Phase 0~11 완료)</p></div>
+          <div><p className="project-label">개인 프로젝트 · Mesh Performance (msa-servicemesh)</p><h2>어떤 워크로드에 어떤 서비스 메쉬가 맞는지,<br /><em>인상이 아니라 반복측정으로</em> 검증하다</h2><p className="project-period">진행기간 · 2026.07 — 2026.08 (완료)</p></div>
           <div className="role-panel"><p>담당 영역</p><strong>Performance Engineering / Platform Verification</strong><span>실험 설계부터 인프라 구축, 통계 분석까지 1인 전체 담당</span></div>
         </div>
         <div className="project-summary">
-          <div><h3>프로젝트 목적</h3><p>Service Mesh 도입 여부는 실무에서 종종 &ldquo;느려질 것이다&rdquo;라는 인상이나, 벤더가 유리한 조건(단순 echo, 저부하)에서 낸 벤치마크로 결정됩니다. 하지만 Sidecar와 Ambient의 비용 구조는 동기 체인, 병렬 fan-out, 비동기 큐, 대용량 payload처럼 워크로드의 통신 패턴에 따라 다르게 나타날 것으로 예상되는데, 이를 직접 측정해 비교한 자료는 흔치 않습니다. Mesh Performance Lab은 이 질문에 인상이 아니라, 직접 구축한 VMware 3-node 온프레미스 Kubernetes 위에서 통제 가능한 5종 Java MSA 워크로드와 통계적 정지 규칙을 갖춘 자체 측정 자동화로 답한 개인 Performance Engineering 프로젝트입니다. Phase 0~11 전체를 마쳤고, 결론은 &ldquo;Ambient가 가장 균형 잡히지만 replica 확장에는 공짜가 아니다&rdquo;처럼 조건이 붙는 형태로 정리했습니다 — 6개 가설 중 1개 확인·2개 부분 확인·3개는 범위 밖으로 명시했습니다.</p></div>
+          <div><h3>프로젝트 목적</h3><p>Service Mesh 도입 여부는 흔히 &ldquo;느려질 것이다&rdquo;라는 인상이나, 벤더가 유리한 조건(단순 echo, 저부하)에서 낸 벤치마크로 결정됩니다. 하지만 Sidecar와 Ambient의 비용 구조는 동기 체인, 병렬 fan-out, 비동기 큐, 대용량 payload처럼 워크로드의 통신 패턴에 따라 다르게 나타날 것으로 예상되는데, 이를 직접 측정해 비교한 자료는 흔치 않습니다. 이 질문에 인상이 아니라, 직접 구축한 VMware 3-node 온프레미스 Kubernetes 위에서 통제 가능한 5종 Java MSA 워크로드와 통계적 정지 규칙을 갖춘 자체 측정 자동화로 답한 개인 Performance Engineering 프로젝트입니다. 전체 실험을 마쳤고, 결론은 &ldquo;Ambient가 가장 균형 잡히지만 replica 확장에는 공짜가 아니다&rdquo;처럼 조건이 붙는 형태로 정리했습니다 — 6개 가설 중 1개 확인·2개 부분 확인·3개는 범위 밖으로 명시했습니다.</p></div>
         </div>
         <div className="stack-row"><span className="stack-title">기술 스택</span>{meshStack.map((item) => <span className="stack-chip" key={item.label}><Image src={item.icon} alt="" width={24} height={24} /><span>{item.label}</span></span>)}</div>
       </section>

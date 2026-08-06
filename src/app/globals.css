@@ -15,7 +15,7 @@ a { color: inherit; }
 .hero-sheet { padding-top: 46px; }
 .project-topline { display: grid; grid-template-columns: 1.55fr .75fr; gap: 46px; }
 .project-label { color: var(--accent); }
-.project-topline h2 { margin: 12px 0 16px; font-size: clamp(27px, 4vw, 44px); line-height: 1.15; letter-spacing: -.075em; }
+.project-topline h2 { margin: 12px 0 16px; font-size: clamp(27px, 4vw, 44px); line-height: 1.15; letter-spacing: -.075em; word-break: keep-all; }
 .project-topline h2 em { color: var(--accent); font-style: normal; }
 .project-period { color: var(--muted); font-size: 13px; }
 .role-panel { align-self: end; border-left: 2px solid var(--accent); padding: 7px 0 7px 20px; }
