@@ -126,6 +126,8 @@ const meshResponsibilities = [
   "VMware Workstation 3-VM(control-plane 1 + worker 2) Kubernetes 1.36을 kubeadm으로 직접 구축하고 Cilium CNI/Gateway·MetalLB·Prometheus/Grafana/Loki/Tempo/OTel 관측 스택을 얹음",
   "Istio Sidecar → Ambient → Waypoint 3가지 데이터플레인을 순서대로 설치·검증하며 실제 호환성 결함(probe 캡처로 인한 crash-loop, NetworkPolicy HBONE 포트 누락)을 근본 원인까지 추적해 해결",
   "App·Sidecar·ztunnel·Waypoint 자원을 분리 수집하고, 독립 2-표본 bootstrap 비교 도구를 직접 구현해 profile 간 통계적으로 유의한 차이만 결론으로 채택",
+  "Chaos Mesh 대신 kubectl·기존 앱 파라미터만으로 pod-kill·chain-wide delay 두 fault를 설계해 회복탄력성을 정량 측정(Phase 10)",
+  "2026-08-03 정전으로 etcd가 손상되자 문서와 자동화만으로 클러스터 전체를 재구축하고, manifest→raw→summary→claim 링크를 SHA-256으로 재검증해 Phase 11 재현성 요건을 충족",
 ];
 
 const meshTroubleshooting: TroubleshootingItem[] = [
@@ -172,6 +174,12 @@ sidecar:
     {{- end }}`,
     },
   },
+  {
+    number: "04", title: "정전으로 etcd가 깨졌고, 그 복구가 뜻하지 않게 재현성 검증이 됐다",
+    problem: "Phase 10 회복탄력성 데이터 수집을 마친 직후, 호스트 전원이 끊기면서 control-plane 노드의 etcd가 손상됐습니다(bbolt backend가 자신의 consistent-index를 잃고 존재하지 않는 snapshot 파일을 찾다 panic). Kubernetes control-plane부터 Cilium·MetalLB·관측 스택·Istio Ambient·애플리케이션 Helm 릴리스까지, **클러스터 전체를 처음부터 다시 세워야** 했습니다.",
+    action: "손상된 데이터를 먼저 백업한 뒤, kubeadm reset(3노드)→kubeadm init(손상 전 apiserver manifest에서 실측해둔 pod/service CIDR을 그대로 재사용)→worker 재join 순으로 control-plane부터 복구했습니다. 그 위에 Cilium 1.19.6→Gateway API+MetalLB→observability 스택→meshperf Helm(no-mesh values로 먼저 검증)→Istio Ambient→ambient values 전환까지, **문서에 적힌 버전·설정값과 기존 자동화(Helm chart, Python 실험 러너)만으로** 순서대로 다시 쌓아 올렸습니다.",
+    result: "노드 3/3 Ready, Cilium/Hubble/MetalLB 정상, NetworkPolicy 개수가 원래 배포와 **정확히 일치**, SYNC_CHAIN E2E(ping·3-hop chain·fan-out·payload·async)가 전부 통과했고, Python 실험 러너 dry-run도 무효화 요인 없이 `COMPLETED`로 끝났습니다. 측정 데이터 자체는 인시던트 전에 git에 반영돼 있어 전혀 영향받지 않았고, 이 복구 과정 자체가 Phase 11이 요구하던 **'새 환경에서 대표 실험을 재현할 수 있는가'**라는 요건을 계획된 리허설이 아니라 실제 장애 상황에서 증명한 셈이 됐습니다.",
+  },
 ];
 
 type CapacityRow = { targetRps: string; stage: string; result: string; achievedRps: string; errorRate: string; p95: string; p99: string; flag?: boolean };
@@ -206,44 +214,74 @@ function CapacityDiscoveryEvidence() {
   );
 }
 
-type MeshFitRow = { workload: string; noMesh?: string; sidecar?: string; ambient?: string; waypoint?: string; pendingNote?: string };
+type MeshFitRow = { scenario: string; recommendation: string; evidence: string; rollback: string };
 
 const meshFitRows: MeshFitRow[] = [
   {
-    workload: "Sync Chain",
-    noMesh: "기준선 확정 (8/17/22 RPS, 10~15회 반복)",
-    sidecar: "network bytes +49%/req 확인, latency 차이는 노이즈 하한 이하",
-    ambient: "network bytes +1~2%/req, replica 증가 시 latency 저하 방향성 신호",
-    waypoint: "연결 결함(NetworkPolicy) 해결 완료 · 정식 반복측정 예정",
+    scenario: "네트워크 바이트가 병목 (대역폭 제한 · 대용량 payload · 높은 처리량)",
+    recommendation: "Ambient",
+    evidence: "network bytes/req +1~2%(Sidecar +49%, Waypoint +16~18% 대비). 단 replica 확장 시 latency·메모리 증가 있음(아래 행 참고)",
+    rollback: "network bytes가 예산을 초과하면 즉시 재평가",
   },
-  { workload: "Fan-out", pendingNote: "워크로드 구현 완료 · Phase 11 정식 반복측정 예정" },
-  { workload: "Async (Kafka)", pendingNote: "워크로드 구현 완료 · Phase 11 정식 반복측정 예정" },
-  { workload: "Payload", pendingNote: "워크로드 구현 완료 · Phase 11 정식 반복측정 예정" },
-  { workload: "Mixed-Resource", pendingNote: "워크로드 구현 완료 · Phase 11 정식 반복측정 예정" },
+  {
+    scenario: "mTLS / zero-trust가 필요하지만 비용에 민감",
+    recommendation: "Ambient (Sidecar에서 mTLS만 끄는 우회는 효과 없음)",
+    evidence: "mTLS는 Sidecar 오버헤드의 ~3%만 설명 — 꺼도 거의 안 줄어듦. Ambient는 mTLS가 사실상 무료(ztunnel이 이미 처리)",
+    rollback: "—",
+  },
+  {
+    scenario: "Pod당 메모리가 빠듯한 클러스터 + 서비스당 replica 多",
+    recommendation: "Ambient — 단, 아래 예외 필수 확인",
+    evidence: "Sidecar 메모리는 replica 1→4에서 120→173MiB(+44%, 선형). Ambient는 방향성 연구(3회)에서 +2%였지만, 정식 반복측정에서는 16.9→30.25MB(+79%, 유의)로 정반대 — '공짜'라고 안심 금지",
+    rollback: "replica 확장 전후 ztunnel 메모리를 반드시 재측정",
+  },
+  {
+    scenario: "replica가 많은 서비스의 latency 민감도가 높음",
+    recommendation: "주의 — Ambient도 replica 증가에 따라 p99가 나빠진다",
+    evidence: "정식 측정 replica 1→4 시 p99 +20%(유의). Sidecar는 오히려 replica가 늘수록 p95가 소폭 개선(부하 분산 효과) — 이 축만 보면 Sidecar가 유리할 수 있음",
+    rollback: "p99가 SLA를 넘으면 replica 수를 낮추거나 Sidecar 재검토",
+  },
+  {
+    scenario: "특정 서비스에만 L7(재시도 · circuit breaking · 헤더 기반 라우팅)이 필요",
+    recommendation: "Waypoint (선택 경로)",
+    evidence: "network bytes가 Ambient·Sidecar 중간(+16~18%). nominal/high 부하에서 latency는 세 profile보다 일관되게 느림(near-saturation에서는 차이 소멸, 원인 미규명). 배포가 까다로움 — NetworkPolicy HBONE 포트 누락 버그를 2건 실제로 발견",
+    rollback: "waypoint 인접 NetworkPolicy에 HBONE 포트(15008)가 열려 있는지 반드시 확인",
+  },
+  {
+    scenario: "일반 서비스 간 통신, L7 기능 불필요, latency에 극도로 민감",
+    recommendation: "No-Mesh 또는 Ambient (Sidecar와의 비교는 미확정)",
+    evidence: "36개 cross-profile latency 비교 중 유의한 건 1건뿐이고 그마저 다음 부하 단계에서 재현 안 됨. 이 환경은 p95 ≈5ms/p99 ≈8ms 미만 차이를 통계적으로 구분하지 못함",
+    rollback: "—",
+  },
+  {
+    scenario: "Pod 장애(crash · 재시작)에 대한 자동 복구가 필요",
+    recommendation: "모든 profile 동일 (Kubernetes 자체 기능)",
+    evidence: "pod-kill 자동 복구는 Deployment의 self-healing이지 mesh profile의 기능이 아님. replica=1이면 fault 중 peak error rate 37.5~73.3%",
+    rollback: "가용성이 중요하면 replica ≥2로 유지",
+  },
+  {
+    scenario: "의존 서비스의 latency 저하(체인 전체가 동시에 느려지는 상황)에 대한 내성",
+    recommendation: "Ambient는 확인됨(성공률 유지, latency만 비례 증가). 나머지 profile은 미확인",
+    evidence: "chain 전체에 50ms/hop 지연을 걸어도 errorRate 0 유지, latency는 injected delay와 거의 정확히 비례. cross-profile 비교는 하지 않음",
+    rollback: "—",
+  },
 ];
 
 function WorkloadMeshFitMatrix() {
   return (
     <div className="evidence-table-wrap">
-      <p className="evidence-code-caption">Workload × Mesh Profile — 지금까지 검증된 것과 남은 것 (최종 선택 Matrix는 Phase 11에서 확정 예정)</p>
+      <p className="evidence-code-caption">Scenario → Mesh Profile 선택 Matrix — Phase 0~11 전체 완료 후 확정 (VMware 3-node · 노드당 2 vCPU · SYNC_CHAIN 3-hop · 8/17/22 RPS 범위 안에서만 유효)</p>
       <table className="evidence-table fit-matrix">
         <thead>
-          <tr><th>워크로드</th><th>No-Mesh</th><th>Sidecar</th><th>Ambient</th><th>Waypoint</th></tr>
+          <tr><th>시나리오 / 요구사항</th><th>권장</th><th>근거 · 비용</th><th>Rollback 기준</th></tr>
         </thead>
         <tbody>
           {meshFitRows.map((row) => (
-            <tr key={row.workload}>
-              <td>{row.workload}</td>
-              {row.pendingNote ? (
-                <td colSpan={4} className="fit-cell-pending">{row.pendingNote}</td>
-              ) : (
-                <>
-                  <td>{row.noMesh}</td>
-                  <td>{row.sidecar}</td>
-                  <td>{row.ambient}</td>
-                  <td>{row.waypoint}</td>
-                </>
-              )}
+            <tr key={row.scenario}>
+              <td>{row.scenario}</td>
+              <td className="fit-cell-strong">{row.recommendation}</td>
+              <td>{row.evidence}</td>
+              <td>{row.rollback}</td>
             </tr>
           ))}
         </tbody>
@@ -503,18 +541,18 @@ export function InfraPortfolio() {
 
       <section className="project-sheet hero-sheet">
         <div className="project-topline">
-          <div><p className="project-label">개인 프로젝트 · Mesh Performance Lab (msa-servicemesh)</p><h2>어떤 워크로드에 어떤 서비스 메쉬가 맞는지,<br /><em>인상이 아니라 반복측정으로</em> 검증하다</h2><p className="project-period">진행기간 · 2026.07 — 진행 중</p></div>
+          <div><p className="project-label">개인 프로젝트 · Mesh Performance Lab (msa-servicemesh)</p><h2>어떤 워크로드에 어떤 서비스 메쉬가 맞는지,<br /><em>인상이 아니라 반복측정으로</em> 검증하다</h2><p className="project-period">진행기간 · 2026.07 — 2026.08 (Phase 0~11 완료)</p></div>
           <div className="role-panel"><p>담당 영역</p><strong>Performance Engineering / Platform Verification</strong><span>실험 설계부터 인프라 구축, 통계 분석까지 1인 전체 담당</span></div>
         </div>
         <div className="project-summary">
-          <div><h3>프로젝트 목적</h3><p>Service Mesh 도입 여부는 실무에서 종종 &ldquo;느려질 것이다&rdquo;라는 인상이나, 벤더가 유리한 조건(단순 echo, 저부하)에서 낸 벤치마크로 결정됩니다. 하지만 Sidecar와 Ambient의 비용 구조는 동기 체인, 병렬 fan-out, 비동기 큐, 대용량 payload처럼 워크로드의 통신 패턴에 따라 다르게 나타날 것으로 예상되는데, 이를 직접 측정해 비교한 자료는 흔치 않습니다. Mesh Performance Lab은 이 질문에 인상이 아니라, 직접 구축한 VMware 3-node 온프레미스 Kubernetes 위에서 통제 가능한 5종 Java MSA 워크로드와 통계적 정지 규칙을 갖춘 자체 측정 자동화로 답하는 개인 Performance Engineering 프로젝트입니다.</p></div>
+          <div><h3>프로젝트 목적</h3><p>Service Mesh 도입 여부는 실무에서 종종 &ldquo;느려질 것이다&rdquo;라는 인상이나, 벤더가 유리한 조건(단순 echo, 저부하)에서 낸 벤치마크로 결정됩니다. 하지만 Sidecar와 Ambient의 비용 구조는 동기 체인, 병렬 fan-out, 비동기 큐, 대용량 payload처럼 워크로드의 통신 패턴에 따라 다르게 나타날 것으로 예상되는데, 이를 직접 측정해 비교한 자료는 흔치 않습니다. Mesh Performance Lab은 이 질문에 인상이 아니라, 직접 구축한 VMware 3-node 온프레미스 Kubernetes 위에서 통제 가능한 5종 Java MSA 워크로드와 통계적 정지 규칙을 갖춘 자체 측정 자동화로 답한 개인 Performance Engineering 프로젝트입니다. Phase 0~11 전체를 마쳤고, 결론은 &ldquo;Ambient가 가장 균형 잡히지만 replica 확장에는 공짜가 아니다&rdquo;처럼 조건이 붙는 형태로 정리했습니다 — 6개 가설 중 1개 확인·2개 부분 확인·3개는 범위 밖으로 명시했습니다.</p></div>
         </div>
         <div className="stack-row"><span className="stack-title">기술 스택</span>{meshStack.map((item) => <span className="stack-chip" key={item.label}><Image src={item.icon} alt="" width={24} height={24} /><span>{item.label}</span></span>)}</div>
       </section>
 
       <section className="project-sheet">
         <SectionTitle eyebrow="01 · Verification Design" title="워크로드마다 다른 질문을 던지도록 설계한 5가지 통신 패턴" />
-        <p className="architecture-overview-lead">단일 echo 벤치마크로는 &ldquo;워크로드별로 무엇이 다른가&rdquo;라는 질문에 답할 수 없습니다. 그래서 실제 MSA에서 반복적으로 나타나는 5가지 통신 패턴을 Java 마이크로서비스로 직접 구현해, 각 패턴이 서로 다른 Mesh 비용 축(hop 누적 지연, retry 증폭, L7 사각지대, payload 비용, 자원 경합)을 드러내도록 설계했습니다. 그리고 이 5가지 패턴을 Profile(No-Mesh/Sidecar/Ambient/Waypoint) 간에 공정하게 비교하려면, 절대 RPS를 정하기 전에 포화점을 먼저 찾고 통계적 정밀도를 통과한 반복측정만 결론으로 인정하는 별도의 검증 절차가 필요했습니다.</p>
+        <p className="architecture-overview-lead">단일 echo 벤치마크로는 &ldquo;워크로드별로 무엇이 다른가&rdquo;라는 질문에 답할 수 없습니다. 그래서 실제 MSA에서 반복적으로 나타나는 5가지 통신 패턴을 Java 마이크로서비스로 직접 구현해, 각 패턴이 서로 다른 Mesh 비용 축(hop 누적 지연, retry 증폭, L7 사각지대, payload 비용, 자원 경합)을 드러내도록 설계했습니다. 프로젝트를 마친 시점 기준으로, 이 중 정식 반복측정과 profile 간 통계 비교까지 끝낸 것은 Sync Chain 하나입니다 — 나머지 4개는 E2E 스모크까지만 확인하고, 최종 결론의 적용 범위에서 명시적으로 제외했습니다. 처음부터 5개를 한 번에 다 검증하겠다고 벌이지 않고, 하나를 통계적으로 믿을 수 있는 수준까지 끝내는 쪽을 택한 결과입니다.</p>
         <MeshWorkloadOverview />
       </section>
 
@@ -526,11 +564,15 @@ export function InfraPortfolio() {
       </section>
 
       <section className="project-sheet troubleshooting-sheet">
-        <SectionTitle eyebrow="03 · Workload → Mesh Verification" title="워크로드별로 어떤 Mesh가 맞는지 — 검증된 것과, 검증할 것" />
-        <p className="architecture-overview-lead">아래 매트릭스가 이 프로젝트가 최종적으로 답해야 하는 것입니다. Sync Chain은 No-Mesh·Sidecar·Ambient 정식 반복측정과 Waypoint 연결 검증까지 마쳤고, 나머지 4개 워크로드는 벤치마크 구현은 끝났지만 Phase 11 정식 반복측정이 아직 남아 있습니다 — 끝난 것과 안 끝난 것을 그대로 구분해서 보여줍니다. 그 아래는 지금까지의 검증 과정에서 나온 원본 로그와 실제 설정입니다.</p>
+        <SectionTitle eyebrow="03 · Workload → Mesh Verification" title="상황별로 어떤 Mesh를 선택해야 하는지, 근거와 함께" />
+        <p className="architecture-overview-lead">이 프로젝트가 최종적으로 답해야 했던 것은 &ldquo;profile 순위&rdquo;가 아니라 &ldquo;이 상황에서는 무엇을 골라야 하는가&rdquo;였습니다. 아래 매트릭스는 8개 시나리오 각각에 대해 권장 profile과 그 근거, 그리고 조건이 바뀌면 재검토해야 할 rollback 기준까지 담았습니다. 그 아래는 이 결론에 이르는 과정에서 나온 원본 로그와 실제 발견 3가지, 그리고 측정과 무관하게 프로젝트 신뢰성 자체를 시험했던 사건 1가지입니다.</p>
         <WorkloadMeshFitMatrix />
         <CapacityDiscoveryEvidence />
         <div className="troubleshooting-grid">{meshTroubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div>
+        <div className="verdict-block">
+          <p className="verdict-label">결론</p>
+          <p>No-Mesh는 기준점이고, <b>Ambient가 이 프로젝트가 측정한 범위 안에서 가장 균형 잡힌 선택</b>입니다(network bytes +1~2%, latency는 No-Mesh와 통계적으로 구분 안 됨, mTLS는 사실상 무료). 다만 <b>replica 확장에는 공짜가 아닙니다</b> — p99 +20%, ztunnel 메모리 +79%, 둘 다 정식 신뢰구간으로 확인됐습니다. Sidecar는 network bytes(+49%)와 Pod당 메모리(replica 비례 증가)가 뚜렷한 대가이고, Waypoint는 선택적 L7이 필요할 때 Ambient·Sidecar 사이의 절충안이지만 배포가 까다롭습니다. 6개 가설 중 1개는 확인, 2개는 부분 확인, 3개는 이번 범위에서 아예 측정하지 않았습니다 — 이 프로젝트의 결론은 개별 수치보다, <b>무엇을 확인했고 무엇을 확인하지 못했는지를 끝까지 구분해서 기록했다는 것</b> 자체입니다.</p>
+        </div>
       </section>
 
       <footer className="portfolio-footer"><span>DoHyun · Cloud Infrastructure Engineer</span><span>© {new Date().getFullYear()}</span></footer>
