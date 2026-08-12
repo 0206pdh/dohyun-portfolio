@@ -43,7 +43,8 @@ const troubleshooting: TroubleshootingItem[] = [
   },
 ];
 
-type LayerCard = { title: string; detail: string };
+type CardFigure = { src: string; alt: string; width: number; height: number };
+type LayerCard = { title: string; detail: string; figure?: CardFigure };
 
 const cloudLayers: LayerCard[] = [
   { title: "Network", detail: "VPC의 Public/Private Subnet과 NAT Gateway로 외부 트래픽과 내부 워크로드를 분리하고, **Secondary CIDR·VPC CNI Custom Networking**으로 Pod IP 대역을 별도 관리합니다." },
@@ -57,24 +58,24 @@ const cloudLayers: LayerCard[] = [
 ];
 
 const dataSecurityLayers: LayerCard[] = [
-  { title: "Domain Segmentation", detail: "PHI를 다루는 **Patient Data VPC**(10.30.0.0/16)와 사용자 식별정보를 다루는 **User Data VPC**(10.40.0.0/16)를 Application VPC와 별도로 두어, 두 도메인을 물리적으로 격리했습니다." },
-  { title: "Network Isolation", detail: "**Transit Gateway isolated route tables**로 Application → Patient/User 방향 접근만 열어두고, 두 데이터 VPC 사이에는 직접 라우팅 경로를 두지 않아 교차 접근을 차단했습니다." },
-  { title: "Encryption & Secrets", detail: "도메인별 **KMS CMK**로 각 RDS를 분리 암호화하고, Secrets Manager의 시크릿을 **External Secrets Operator**가 필요한 네임스페이스에만 동기화합니다." },
-  { title: "Availability & Storage", detail: "Patient DB·User DB 모두 **RDS Multi-AZ**로 동기 복제하고, S3 버킷은 모두 **Private + SSE-S3 + 퍼블릭 액세스 차단**으로 운영합니다." },
+  { title: "Domain Segmentation", detail: "PHI를 다루는 **Patient Data VPC**(10.30.0.0/16)와 사용자 식별정보를 다루는 **User Data VPC**(10.40.0.0/16)를 Application VPC와 별도로 두어, 두 도메인을 물리적으로 격리했습니다.", figure: { src: "/images/data-security-domain.png", alt: "Patient Data VPC와 User Data VPC 분리 구조", width: 675, height: 1125 } },
+  { title: "Network Isolation", detail: "**Transit Gateway isolated route tables**로 Application → Patient/User 방향 접근만 열어두고, 두 데이터 VPC 사이에는 직접 라우팅 경로를 두지 않아 교차 접근을 차단했습니다.", figure: { src: "/images/data-security-network-isolation.png", alt: "Transit Gateway isolated route tables", width: 205, height: 170 } },
+  { title: "Encryption & Secrets", detail: "도메인별 **KMS CMK**로 각 RDS를 분리 암호화하고, Secrets Manager의 시크릿을 **External Secrets Operator**가 필요한 네임스페이스에만 동기화합니다.", figure: { src: "/images/data-security-encryption.png", alt: "Patient CMK와 Patient secret", width: 278, height: 115 } },
+  { title: "Availability & Storage", detail: "Patient DB·User DB 모두 **RDS Multi-AZ**로 동기 복제하고, S3 버킷은 모두 **Private + SSE-S3 + 퍼블릭 액세스 차단**으로 운영합니다.", figure: { src: "/images/data-security-availability.png", alt: "RDS Primary/Standby와 Redis Primary/Replica", width: 880, height: 155 } },
 ];
 
 const clusterLayers: LayerCard[] = [
-  { title: "2-AZ VPC Layout", detail: "utterai-prod-vpc(10.20.0.0/16)를 **두 AZ**에 걸쳐 Public·Private App·Private Pod 3계층 서브넷으로 나누고, Pod 전용 Secondary CIDR을 AZ별로 분리합니다." },
-  { title: "Node Group Split", detail: "시스템 컴포넌트는 **Managed Node Group**, 애플리케이션 워크로드는 **Karpenter**가 프로비저닝하는 노드로 나눕니다." },
-  { title: "Platform Controllers", detail: "Argo CD·KEDA·External Secrets Operator·AWS Load Balancer Controller·metrics-server·CoreDNS를 **platform 네임스페이스** 하나로 모아 관리합니다." },
-  { title: "VPC Endpoints & Client VPN", detail: "SQS·Secrets Manager·ECR용 **Interface Endpoint**와 S3 **Gateway Endpoint**로 AWS API 트래픽을 NAT 없이 오가게 하고, 운영자는 **Client VPN**으로 접근합니다." },
+  { title: "2-AZ VPC Layout", detail: "utterai-prod-vpc(10.20.0.0/16)를 **두 AZ**에 걸쳐 Public·Private App·Private Pod 3계층 서브넷으로 나누고, Pod 전용 Secondary CIDR을 AZ별로 분리합니다.", figure: { src: "/images/eks-cluster-vpc-layout.png", alt: "ap-northeast-2a/2c 두 AZ에 걸친 VPC/서브넷 구성", width: 1280, height: 650 } },
+  { title: "Node Group Split", detail: "시스템 컴포넌트는 **Managed Node Group**, 애플리케이션 워크로드는 **Karpenter**가 프로비저닝하는 노드로 나눕니다.", figure: { src: "/images/eks-cluster-node-split.png", alt: "Managed Node Group과 Karpenter 워커 노드 아이콘", width: 990, height: 140 } },
+  { title: "Platform Controllers", detail: "Argo CD·KEDA·External Secrets Operator·AWS Load Balancer Controller·metrics-server·CoreDNS를 **platform 네임스페이스** 하나로 모아 관리합니다.", figure: { src: "/images/eks-cluster-platform-controllers.png", alt: "platform 네임스페이스의 컨트롤러 6종", width: 1265, height: 170 } },
+  { title: "VPC Endpoints & Client VPN", detail: "SQS·Secrets Manager·ECR용 **Interface Endpoint**와 S3 **Gateway Endpoint**로 AWS API 트래픽을 NAT 없이 오가게 하고, 운영자는 **Client VPN**으로 접근합니다.", figure: { src: "/images/eks-cluster-vpn-endpoints.png", alt: "AWS Client VPN과 VPC Endpoints 구성", width: 464, height: 135 } },
 ];
 
 const aiPipelineLayers: LayerCard[] = [
-  { title: "Diarization & Transcription Trigger", detail: "**audio-preprocess 큐 깊이**에 따라 GPU Worker가 0에서 스케일업돼, pyannote 화자분리와 Whisper 전사를 큐 기반으로 실행합니다." },
+  { title: "Diarization & Transcription Trigger", detail: "**audio-preprocess 큐 깊이**에 따라 GPU Worker가 0에서 스케일업돼, pyannote 화자분리와 Whisper 전사를 큐 기반으로 실행합니다.", figure: { src: "/images/ai-pipeline-trigger.png", alt: "KEDA SQS autoscaling과 CPU/Batch/GPU Workers", width: 543, height: 180 } },
   { title: "Model Cache (EFS)", detail: "pyannote·Whisper 모델을 **EFS에 미리 캐시**해, GPU Pod가 뜰 때마다 HuggingFace에서 다시 받지 않도록 합니다." },
-  { title: "RAG + Report Generation", detail: "RAG Source 버킷에 임베딩해 둔 참고자료를 근거로, **Bedrock Claude Haiku 4.5**가 언어표본분석 지표와 SOAP 노트 초안을 생성합니다." },
-  { title: "LLM Observability", detail: "Bedrock 호출마다 OpenTelemetry span을 열어 **Arize Phoenix**로 보내, 프롬프트·응답·지연시간을 인프라 메트릭과 분리해 추적합니다." },
+  { title: "RAG + Report Generation", detail: "RAG Source 버킷에 임베딩해 둔 참고자료를 근거로, **Bedrock Claude Haiku 4.5**가 언어표본분석 지표와 SOAP 노트 초안을 생성합니다.", figure: { src: "/images/ai-pipeline-rag-report.png", alt: "RAG Source S3 버킷과 Bedrock Claude Haiku 4.5", width: 528, height: 240 } },
+  { title: "LLM Observability", detail: "Bedrock 호출마다 OpenTelemetry span을 열어 **Arize Phoenix**로 보내, 프롬프트·응답·지연시간을 인프라 메트릭과 분리해 추적합니다.", figure: { src: "/images/ai-pipeline-observability.png", alt: "OpenTelemetry에서 Arize Phoenix로 이어지는 LLM 추적", width: 390, height: 160 } },
 ];
 
 const dockvizStack = [
@@ -145,6 +146,11 @@ function LayerGrid({ layers }: { layers: LayerCard[] }) {
     <div className="cloud-architecture-grid">
       {layers.map((layer) => (
         <div className="cloud-architecture-card" key={layer.title}>
+          {layer.figure && (
+            <div className="card-figure">
+              <Image src={layer.figure.src} alt={layer.figure.alt} width={layer.figure.width} height={layer.figure.height} />
+            </div>
+          )}
           <h4>{layer.title}</h4>
           <p>{highlight(layer.detail)}</p>
         </div>
