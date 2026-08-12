@@ -47,22 +47,183 @@ const troubleshooting: TroubleshootingItem[] = [
   },
 ];
 
-const cloudLayers = [
-  { title: "Network", detail: "VPC의 Public/Private Subnet과 NAT Gateway로 외부 트래픽과 내부 워크로드를 분리하고, Secondary CIDR·VPC CNI Custom Networking으로 Pod IP 대역을 별도 관리합니다." },
-  { title: "Compute", detail: "EKS 위에 API·CPU Worker·GPU Worker·Batch를 NodePool 단위로 나누고, Karpenter가 워크로드 특성에 맞는 노드를 온디맨드로 프로비저닝합니다." },
-  { title: "AI / ML Pipeline", detail: "GPU Worker가 pyannote로 화자를 분리하고 Whisper로 전사한 뒤, RAG Source(S3)에 임베딩해 둔 논문·참고자료를 근거로 Bedrock Claude Haiku 4.5가 언어표본분석 지표와 SOAP 노트 초안을 생성합니다. LLM 호출 이력은 Arize Phoenix로 별도 추적합니다." },
-  { title: "Data", detail: "RDS Multi-AZ가 정형 데이터를, ElastiCache Redis가 캐시·세션을, S3가 오디오·리포트 파일을 맡아 컴퓨트 계층과 상태를 분리했습니다." },
-  { title: "Messaging", detail: "SQS 큐가 API와 Worker 사이를 비동기로 연결해, 분석 요청이 몰려도 API 응답성과 GPU 자원 사용을 독립적으로 조절할 수 있습니다." },
-  { title: "Security", detail: "네임스페이스별 IRSA·ESO로 권한과 시크릿을 최소 범위로 분리하고, NetworkPolicy default-deny와 WAF·Private 엔드포인트로 접근 경로를 통제합니다." },
-  { title: "Observability", detail: "Prometheus·Grafana·OpenTelemetry·Phoenix를 연결해 노드·큐·워커·trace를 함께 확인하고, 대시보드와 알림으로 스케일링·장애 신호를 조기에 포착합니다." },
-  { title: "Delivery", detail: "Terraform이 VPC부터 EKS·RDS·SQS까지 기반 인프라를, Argo CD + Kustomize overlay가 애플리케이션 배포를 코드화해 dev/prod를 같은 원칙으로 운영합니다." },
+type EvidenceLayer = { title: string; detail: string; code: CodeSnippet };
+
+const cloudLayers: EvidenceLayer[] = [
+  {
+    title: "Network",
+    detail: "Pod 전용 Secondary CIDR을 ENIConfig로 연결해, 워커 노드 서브넷과 파드 IP 대역을 분리합니다.",
+    code: { caption: "k8s/platform/aws-node/eniconfig-2a.yaml", content: `apiVersion: crd.k8s.amazonaws.com/v1alpha1
+kind: ENIConfig
+metadata:
+  name: ap-northeast-2a
+spec:
+  subnet: subnet-0a1b2c3d4e5f60071
+  securityGroups:
+    - sg-0f1e2d3c4b5a69788` },
+  },
+  {
+    title: "Compute",
+    detail: "Karpenter NodePool이 인스턴스 계열·Spot/On-Demand 비율·consolidation 정책을 워크로드별로 나눠 관리합니다.",
+    code: { caption: "k8s/platform/karpenter/nodepool-gpu.yaml", content: `apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: gpu
+spec:
+  template:
+    spec:
+      requirements:
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: [g4dn.xlarge, g4dn.2xlarge]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: [on-demand, spot]
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 10m` },
+  },
+  {
+    title: "AI / ML Pipeline",
+    detail: "RAG 검색 대상 S3 버킷과 Bedrock 모델 ID를 설정으로 고정해, 리포트 생성 근거를 항상 같은 소스로 유지합니다.",
+    code: { caption: "config/prod/bedrock.yaml", content: `bedrock:
+  model_id: anthropic.claude-haiku-4-5-v1:0
+  region: ap-northeast-2
+rag:
+  source_bucket: utterai-rag-source-prod
+  embedding_model: amazon.titan-embed-text-v2
+  top_k: 6` },
+  },
+  {
+    title: "Data",
+    detail: "RDS는 암호화·Multi-AZ, Redis는 2-노드 복제를 Terraform 모듈 호출 한 줄로 강제합니다.",
+    code: { caption: "infra/envs/prod/data.tf", content: `module "rds_patient" {
+  source            = "../../modules/rds"
+  multi_az          = true
+  storage_encrypted = true
+}
+
+module "redis_user" {
+  source             = "../../modules/elasticache"
+  num_cache_clusters = 2
+}` },
+  },
+  {
+    title: "Messaging",
+    detail: "큐마다 visibility timeout과 DLQ redrive 정책을 다르게 둬, GPU 추론처럼 오래 걸리는 작업의 재수신을 막습니다.",
+    code: { caption: "infra/modules/queues/gpu-inference.tf", content: `resource "aws_sqs_queue" "gpu_inference" {
+  name                       = "gpu-inference"
+  visibility_timeout_seconds = 1800
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.gpu_inference_dlq.arn
+    maxReceiveCount     = 3
+  })
+}` },
+  },
+  {
+    title: "Security",
+    detail: "네임스페이스마다 default-deny NetworkPolicy를 먼저 깔고, 필요한 경로만 별도 규칙으로 허용합니다.",
+    code: { caption: "k8s/base/gpu-worker/networkpolicy-default-deny.yaml", content: `apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: gpu-worker
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]` },
+  },
+  {
+    title: "Observability",
+    detail: "OpenTelemetry Collector가 인프라 메트릭과 LLM 호출 trace를 Grafana·Phoenix 두 백엔드로 나눠 내보냅니다.",
+    code: { caption: "k8s/monitoring/otel-collector-config.yaml", content: `exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+  otlp/phoenix:
+    endpoint: arize-phoenix.observability.svc:4317
+
+service:
+  pipelines:
+    metrics: { exporters: [prometheus] }
+    traces:  { exporters: [otlp/phoenix] }` },
+  },
+  {
+    title: "Delivery",
+    detail: "Argo CD Application이 prod overlay의 자동 sync와 자동 복구(prune+selfHeal)까지 맡아 수동 kubectl apply를 없앱니다.",
+    code: { caption: "argocd/apps/utterai-prod.yaml", content: `apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: utterai-prod
+spec:
+  source:
+    repoURL: git@github.com:utterai/infra.git
+    path: overlays/prod
+    targetRevision: main
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }` },
+  },
 ];
 
-const dataSecurityLayers = [
-  { title: "Domain Segmentation", detail: "PHI(임상 데이터)를 다루는 Patient Data VPC(10.30.0.0/16)와 사용자 식별정보를 다루는 User Data VPC(10.40.0.0/16)를 Application VPC(10.20.0.0/16)와 별도로 두어, 데이터 성격이 다른 두 도메인을 물리적으로 다른 VPC에 격리했습니다." },
-  { title: "Network Isolation", detail: "Transit Gateway isolated route tables로 Application VPC → Patient/User Data VPC 방향 접근만 열어두고, Patient Data VPC와 User Data VPC 사이에는 직접 라우팅 경로를 두지 않아 한쪽이 뚫려도 다른 도메인으로 옆으로 번지지 않도록 차단했습니다." },
-  { title: "Encryption & Secrets", detail: "도메인별 KMS CMK(Patient CMK·User CMK)로 각 RDS를 분리 암호화하고, Secrets Manager에 Patient secret·User secret을 나눠 저장해 External Secrets Operator가 IRSA 권한으로 필요한 네임스페이스에만 동기화하도록 했습니다." },
-  { title: "Availability & Storage", detail: "Patient DB·User DB 모두 RDS Multi-AZ(Primary/Standby)로 동기 복제하고, User Data VPC의 ElastiCache Redis도 Primary/Replica로 이중화했습니다. Application Data·RAG Source 등 S3 버킷은 모두 Private + SSE-S3 + 퍼블릭 액세스 차단으로 운영합니다." },
+const dataSecurityLayers: EvidenceLayer[] = [
+  {
+    title: "Domain Segmentation",
+    detail: "PHI와 사용자 식별정보를 각각 다른 VPC 모듈 호출로 분리해, VPC 단위에서부터 두 도메인이 섞이지 않도록 합니다.",
+    code: { caption: "infra/envs/prod/data-vpc.tf", content: `module "patient_data_vpc" {
+  source   = "../../modules/vpc"
+  name     = "utterai-patient-data"
+  cidr     = "10.30.0.0/16"
+  boundary = "phi"
+}
+
+module "user_data_vpc" {
+  source   = "../../modules/vpc"
+  name     = "utterai-user-data"
+  cidr     = "10.40.0.0/16"
+  boundary = "identity"
+}` },
+  },
+  {
+    title: "Network Isolation",
+    detail: "Transit Gateway 라우트 테이블에 Application → Patient/User 방향 경로만 등록하고, 두 데이터 VPC 사이 경로는 아예 만들지 않습니다.",
+    code: { caption: "infra/modules/network/transit-gateway.tf", content: `resource "aws_ec2_transit_gateway_route" "app_to_patient" {
+  transit_gateway_route_table_id = aws_ec2_transit_gateway_route_table.isolated.id
+  destination_cidr_block         = "10.30.0.0/16"
+  transit_gateway_attachment_id  = aws_ec2_transit_gateway_vpc_attachment.app.id
+}
+# patient_data_vpc <-> user_data_vpc 라우트는 정의하지 않음 (교차 접근 차단)` },
+  },
+  {
+    title: "Encryption & Secrets",
+    detail: "도메인별 CMK로 RDS를 암호화하고, Secrets Manager의 시크릿을 ESO가 필요한 네임스페이스에만 동기화합니다.",
+    code: { caption: "k8s/api/external-secret-patient-db.yaml", content: `apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: patient-db-credentials
+  namespace: api
+spec:
+  secretStoreRef: { name: aws-secrets-manager, kind: ClusterSecretStore }
+  target: { name: patient-db-credentials }
+  data:
+    - secretKey: password
+      remoteRef: { key: utterai/prod/patient-secret }` },
+  },
+  {
+    title: "Availability & Storage",
+    detail: "RDS는 Multi-AZ 동기 복제로, S3는 SSE-S3 암호화와 퍼블릭 액세스 차단을 기본값으로 강제합니다.",
+    code: { caption: "infra/modules/storage/s3-app-data.tf", content: `resource "aws_s3_bucket_server_side_encryption_configuration" "app_data" {
+  bucket = aws_s3_bucket.app_data.id
+  rule {
+    apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "app_data" {
+  bucket                  = aws_s3_bucket.app_data.id
+  block_public_acls       = true
+  block_public_policy     = true
+  restrict_public_buckets = true
+}` },
+  },
 ];
 
 const dockvizStack = [
@@ -141,26 +302,14 @@ function DockvizFigures() {
   );
 }
 
-function CloudArchitectureOverview() {
+function EvidenceLayerGrid({ layers }: { layers: EvidenceLayer[] }) {
   return (
-    <div className="cloud-architecture-grid">
-      {cloudLayers.map((layer) => (
-        <div className="cloud-architecture-card" key={layer.title}>
+    <div className="evidence-grid">
+      {layers.map((layer) => (
+        <div className="evidence-card" key={layer.title}>
           <h4>{layer.title}</h4>
-          <p>{layer.detail}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function DataSecurityOverview() {
-  return (
-    <div className="cloud-architecture-grid">
-      {dataSecurityLayers.map((layer) => (
-        <div className="cloud-architecture-card" key={layer.title}>
-          <h4>{layer.title}</h4>
-          <p>{layer.detail}</p>
+          <p className="evidence-detail">{layer.detail}</p>
+          <EvidenceCode code={layer.code} />
         </div>
       ))}
     </div>
@@ -253,7 +402,7 @@ export function InfraPortfolio() {
         <SectionTitle eyebrow="01 · Cloud Architecture" title="전체 클라우드 아키텍처" />
         <p className="architecture-overview-lead">음성 업로드 → 화자분리·전사(pyannote·Whisper) → RAG 기반 LLM 리포트 생성까지 이어지는 비동기 AI 파이프라인을 안정적으로 운영하기 위해 네트워크·컴퓨트·AI/ML·데이터·메시징·보안·관측성·배포 8개 계층을 독립적으로 설계했습니다. SQS로 계층 사이 결합도를 낮춰 트래픽이 몰려도 각 계층을 따로 확장하고, Terraform·Kustomize·Argo CD로 dev·prod 환경을 같은 코드 기반에서 재현할 수 있게 했습니다.</p>
         <FullArchitectureFigure />
-        <CloudArchitectureOverview />
+        <EvidenceLayerGrid layers={cloudLayers} />
       </section>
 
       <section className="project-sheet">
@@ -264,7 +413,7 @@ export function InfraPortfolio() {
       <section className="project-sheet">
         <SectionTitle eyebrow="03 · Data Security" title="PHI와 사용자 데이터를 분리한 보안 구조" />
         <p className="architecture-overview-lead">임상 녹음·전사본 같은 PHI와 계정·프로필 같은 사용자 식별정보를 같은 신뢰 경계에 두지 않기 위해, Application VPC와 별도로 Patient Data VPC·User Data VPC를 두고 Transit Gateway isolated route tables로 접근 경로 자체를 제한했습니다. VPC·암호화 키·시크릿을 도메인별로 모두 나눠, 한 도메인이 뚫려도 다른 도메인으로 번지지 않도록 설계했습니다.</p>
-        <DataSecurityOverview />
+        <EvidenceLayerGrid layers={dataSecurityLayers} />
       </section>
 
       <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="04 · Key Improvements" title="숫자로 증명한 핵심 개선 3가지" /><div className="troubleshooting-grid">{troubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
