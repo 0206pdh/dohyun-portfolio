@@ -43,311 +43,38 @@ const troubleshooting: TroubleshootingItem[] = [
   },
 ];
 
-type EvidenceLayer = { title: string; detail: string; code: CodeSnippet };
+type LayerCard = { title: string; detail: string };
 
-const cloudLayers: EvidenceLayer[] = [
-  {
-    title: "Network",
-    detail: "Pod 전용 Secondary CIDR을 ENIConfig로 연결해, 워커 노드 서브넷과 파드 IP 대역을 분리합니다.",
-    code: { caption: "k8s/platform/aws-node/eniconfig-2a.yaml", content: `apiVersion: crd.k8s.amazonaws.com/v1alpha1
-kind: ENIConfig
-metadata:
-  name: ap-northeast-2a
-spec:
-  subnet: subnet-0a1b2c3d4e5f60071
-  securityGroups:
-    - sg-0f1e2d3c4b5a69788` },
-  },
-  {
-    title: "Compute",
-    detail: "Karpenter NodePool이 인스턴스 계열·Spot/On-Demand 비율·consolidation 정책을 워크로드별로 나눠 관리합니다.",
-    code: { caption: "k8s/platform/karpenter/nodepool-gpu.yaml", content: `apiVersion: karpenter.sh/v1
-kind: NodePool
-metadata:
-  name: gpu
-spec:
-  template:
-    spec:
-      requirements:
-        - key: node.kubernetes.io/instance-type
-          operator: In
-          values: [g4dn.xlarge, g4dn.2xlarge]
-        - key: karpenter.sh/capacity-type
-          operator: In
-          values: [on-demand, spot]
-  disruption:
-    consolidationPolicy: WhenEmpty
-    consolidateAfter: 10m` },
-  },
-  {
-    title: "AI / ML Pipeline",
-    detail: "RAG 검색 대상 S3 버킷과 Bedrock 모델 ID를 설정으로 고정해, 리포트 생성 근거를 항상 같은 소스로 유지합니다.",
-    code: { caption: "config/prod/bedrock.yaml", content: `bedrock:
-  model_id: anthropic.claude-haiku-4-5-v1:0
-  region: ap-northeast-2
-rag:
-  source_bucket: utterai-rag-source-prod
-  embedding_model: amazon.titan-embed-text-v2
-  top_k: 6` },
-  },
-  {
-    title: "Data",
-    detail: "RDS는 암호화·Multi-AZ, Redis는 2-노드 복제를 Terraform 모듈 호출 한 줄로 강제합니다.",
-    code: { caption: "infra/envs/prod/data.tf", content: `module "rds_patient" {
-  source            = "../../modules/rds"
-  multi_az          = true
-  storage_encrypted = true
-}
-
-module "redis_user" {
-  source             = "../../modules/elasticache"
-  num_cache_clusters = 2
-}` },
-  },
-  {
-    title: "Messaging",
-    detail: "큐마다 visibility timeout과 DLQ redrive 정책을 다르게 둬, GPU 추론처럼 오래 걸리는 작업의 재수신을 막습니다.",
-    code: { caption: "infra/modules/queues/gpu-inference.tf", content: `resource "aws_sqs_queue" "gpu_inference" {
-  name                       = "gpu-inference"
-  visibility_timeout_seconds = 1800
-
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.gpu_inference_dlq.arn
-    maxReceiveCount     = 3
-  })
-}` },
-  },
-  {
-    title: "Security",
-    detail: "네임스페이스마다 default-deny NetworkPolicy를 먼저 깔고, 필요한 경로만 별도 규칙으로 허용합니다.",
-    code: { caption: "k8s/base/gpu-worker/networkpolicy-default-deny.yaml", content: `apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: default-deny
-  namespace: gpu-worker
-spec:
-  podSelector: {}
-  policyTypes: [Ingress, Egress]` },
-  },
-  {
-    title: "Observability",
-    detail: "OpenTelemetry Collector가 인프라 메트릭과 LLM 호출 trace를 Grafana·Phoenix 두 백엔드로 나눠 내보냅니다.",
-    code: { caption: "k8s/monitoring/otel-collector-config.yaml", content: `exporters:
-  prometheus:
-    endpoint: 0.0.0.0:8889
-  otlp/phoenix:
-    endpoint: arize-phoenix.observability.svc:4317
-
-service:
-  pipelines:
-    metrics: { exporters: [prometheus] }
-    traces:  { exporters: [otlp/phoenix] }` },
-  },
-  {
-    title: "Delivery",
-    detail: "Argo CD Application이 prod overlay의 자동 sync와 자동 복구(prune+selfHeal)까지 맡아 수동 kubectl apply를 없앱니다.",
-    code: { caption: "argocd/apps/utterai-prod.yaml", content: `apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: utterai-prod
-spec:
-  source:
-    repoURL: git@github.com:utterai/infra.git
-    path: overlays/prod
-    targetRevision: main
-  syncPolicy:
-    automated: { prune: true, selfHeal: true }` },
-  },
+const cloudLayers: LayerCard[] = [
+  { title: "Network", detail: "VPC의 Public/Private Subnet과 NAT Gateway로 외부 트래픽과 내부 워크로드를 분리하고, **Secondary CIDR·VPC CNI Custom Networking**으로 Pod IP 대역을 별도 관리합니다." },
+  { title: "Compute", detail: "EKS 위에 API·CPU Worker·GPU Worker·Batch를 NodePool 단위로 나누고, **Karpenter**가 워크로드 특성에 맞는 노드를 온디맨드로 프로비저닝합니다." },
+  { title: "AI / ML Pipeline", detail: "GPU Worker가 **pyannote·Whisper**로 화자분리·전사를 하고, RAG로 임베딩한 참고자료를 근거로 **Bedrock Claude Haiku 4.5**가 지표와 SOAP 노트 초안을 생성합니다. LLM 호출은 **Arize Phoenix**로 별도 추적합니다." },
+  { title: "Data", detail: "**RDS Multi-AZ**가 정형 데이터를, ElastiCache Redis가 캐시·세션을, S3가 오디오·리포트 파일을 맡아 컴퓨트 계층과 상태를 분리했습니다." },
+  { title: "Messaging", detail: "**SQS** 큐가 API와 Worker 사이를 비동기로 연결해, 분석 요청이 몰려도 API 응답성과 GPU 자원 사용을 독립적으로 조절할 수 있습니다." },
+  { title: "Security", detail: "네임스페이스별 IRSA·ESO로 권한과 시크릿을 최소 범위로 분리하고, **NetworkPolicy default-deny**와 WAF·Private 엔드포인트로 접근 경로를 통제합니다." },
+  { title: "Observability", detail: "Prometheus·Grafana·OpenTelemetry·Phoenix를 연결해 노드·큐·워커·trace를 함께 확인하고, 대시보드와 알림으로 **스케일링·장애 신호를 조기에 포착**합니다." },
+  { title: "Delivery", detail: "Terraform이 VPC부터 EKS·RDS·SQS까지 기반 인프라를, **Argo CD + Kustomize overlay**가 애플리케이션 배포를 코드화해 dev/prod를 같은 원칙으로 운영합니다." },
 ];
 
-const dataSecurityLayers: EvidenceLayer[] = [
-  {
-    title: "Domain Segmentation",
-    detail: "PHI와 사용자 식별정보를 각각 다른 VPC 모듈 호출로 분리해, VPC 단위에서부터 두 도메인이 섞이지 않도록 합니다.",
-    code: { caption: "infra/envs/prod/data-vpc.tf", content: `module "patient_data_vpc" {
-  source   = "../../modules/vpc"
-  name     = "utterai-patient-data"
-  cidr     = "10.30.0.0/16"
-  boundary = "phi"
-}
-
-module "user_data_vpc" {
-  source   = "../../modules/vpc"
-  name     = "utterai-user-data"
-  cidr     = "10.40.0.0/16"
-  boundary = "identity"
-}` },
-  },
-  {
-    title: "Network Isolation",
-    detail: "Transit Gateway 라우트 테이블에 Application → Patient/User 방향 경로만 등록하고, 두 데이터 VPC 사이 경로는 아예 만들지 않습니다.",
-    code: { caption: "infra/modules/network/transit-gateway.tf", content: `resource "aws_ec2_transit_gateway_route" "app_to_patient" {
-  transit_gateway_route_table_id = aws_ec2_transit_gateway_route_table.isolated.id
-  destination_cidr_block         = "10.30.0.0/16"
-  transit_gateway_attachment_id  = aws_ec2_transit_gateway_vpc_attachment.app.id
-}
-# patient_data_vpc <-> user_data_vpc 라우트는 정의하지 않음 (교차 접근 차단)` },
-  },
-  {
-    title: "Encryption & Secrets",
-    detail: "도메인별 CMK로 RDS를 암호화하고, Secrets Manager의 시크릿을 ESO가 필요한 네임스페이스에만 동기화합니다.",
-    code: { caption: "k8s/api/external-secret-patient-db.yaml", content: `apiVersion: external-secrets.io/v1beta1
-kind: ExternalSecret
-metadata:
-  name: patient-db-credentials
-  namespace: api
-spec:
-  secretStoreRef: { name: aws-secrets-manager, kind: ClusterSecretStore }
-  target: { name: patient-db-credentials }
-  data:
-    - secretKey: password
-      remoteRef: { key: utterai/prod/patient-secret }` },
-  },
-  {
-    title: "Availability & Storage",
-    detail: "RDS는 Multi-AZ 동기 복제로, S3는 SSE-S3 암호화와 퍼블릭 액세스 차단을 기본값으로 강제합니다.",
-    code: { caption: "infra/modules/storage/s3-app-data.tf", content: `resource "aws_s3_bucket_server_side_encryption_configuration" "app_data" {
-  bucket = aws_s3_bucket.app_data.id
-  rule {
-    apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
-  }
-}
-
-resource "aws_s3_bucket_public_access_block" "app_data" {
-  bucket                  = aws_s3_bucket.app_data.id
-  block_public_acls       = true
-  block_public_policy     = true
-  restrict_public_buckets = true
-}` },
-  },
+const dataSecurityLayers: LayerCard[] = [
+  { title: "Domain Segmentation", detail: "PHI를 다루는 **Patient Data VPC**(10.30.0.0/16)와 사용자 식별정보를 다루는 **User Data VPC**(10.40.0.0/16)를 Application VPC와 별도로 두어, 두 도메인을 물리적으로 격리했습니다." },
+  { title: "Network Isolation", detail: "**Transit Gateway isolated route tables**로 Application → Patient/User 방향 접근만 열어두고, 두 데이터 VPC 사이에는 직접 라우팅 경로를 두지 않아 교차 접근을 차단했습니다." },
+  { title: "Encryption & Secrets", detail: "도메인별 **KMS CMK**로 각 RDS를 분리 암호화하고, Secrets Manager의 시크릿을 **External Secrets Operator**가 필요한 네임스페이스에만 동기화합니다." },
+  { title: "Availability & Storage", detail: "Patient DB·User DB 모두 **RDS Multi-AZ**로 동기 복제하고, S3 버킷은 모두 **Private + SSE-S3 + 퍼블릭 액세스 차단**으로 운영합니다." },
 ];
 
-const clusterLayers: EvidenceLayer[] = [
-  {
-    title: "2-AZ VPC Layout",
-    detail: "utterai-prod-vpc(10.20.0.0/16)를 두 AZ에 걸쳐 Public·Private App·Private Pod 3계층 서브넷으로 나누고, Pod 전용 Secondary CIDR을 AZ별로 분리합니다.",
-    code: { caption: "infra/envs/prod/vpc.tf", content: `module "application_vpc" {
-  source = "../../modules/vpc"
-  name   = "utterai-prod"
-  cidr   = "10.20.0.0/16"
-  azs    = ["ap-northeast-2a", "ap-northeast-2c"]
-
-  private_pod_cidrs = {
-    "ap-northeast-2a" = "100.64.0.0/17"
-    "ap-northeast-2c" = "100.64.128.0/17"
-  }
-}` },
-  },
-  {
-    title: "Node Group Split",
-    detail: "시스템 컴포넌트는 Managed Node Group, 애플리케이션 워크로드는 Karpenter가 프로비저닝하는 노드로 나눕니다.",
-    code: { caption: "infra/modules/eks/main.tf", content: `eks_managed_node_groups = {
-  system = {
-    instance_types = ["m6i.large"]
-    min_size       = 2
-    max_size       = 4
-  }
-}
-
-module "karpenter" {
-  source       = "terraform-aws-modules/eks/aws//modules/karpenter"
-  cluster_name = module.eks.cluster_name
-}` },
-  },
-  {
-    title: "Platform Controllers",
-    detail: "Argo CD·KEDA·External Secrets Operator·AWS Load Balancer Controller·metrics-server·CoreDNS를 platform 네임스페이스 하나로 모아 관리합니다.",
-    code: { caption: "k8s/platform/kustomization.yaml", content: `apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-namespace: platform
-resources:
-  - argocd/
-  - keda/
-  - external-secrets/
-  - aws-load-balancer-controller/
-  - metrics-server/
-  - coredns/` },
-  },
-  {
-    title: "VPC Endpoints & Client VPN",
-    detail: "SQS·Secrets Manager·ECR용 Interface Endpoint와 S3 Gateway Endpoint로 AWS API 트래픽을 NAT 없이 오가게 하고, 운영자는 Client VPN으로 접근합니다.",
-    code: { caption: "infra/modules/network/vpc-endpoints.tf", content: `resource "aws_vpc_endpoint" "sqs" {
-  vpc_id            = module.application_vpc.id
-  service_name      = "com.amazonaws.ap-northeast-2.sqs"
-  vpc_endpoint_type = "Interface"
-}
-
-resource "aws_vpc_endpoint" "s3" {
-  vpc_id            = module.application_vpc.id
-  service_name      = "com.amazonaws.ap-northeast-2.s3"
-  vpc_endpoint_type = "Gateway"
-}
-
-resource "aws_ec2_client_vpn_endpoint" "operator" {
-  server_certificate_arn = aws_acm_certificate.vpn_server.arn
-  client_cidr_block      = "10.90.0.0/22"
-}` },
-  },
+const clusterLayers: LayerCard[] = [
+  { title: "2-AZ VPC Layout", detail: "utterai-prod-vpc(10.20.0.0/16)를 **두 AZ**에 걸쳐 Public·Private App·Private Pod 3계층 서브넷으로 나누고, Pod 전용 Secondary CIDR을 AZ별로 분리합니다." },
+  { title: "Node Group Split", detail: "시스템 컴포넌트는 **Managed Node Group**, 애플리케이션 워크로드는 **Karpenter**가 프로비저닝하는 노드로 나눕니다." },
+  { title: "Platform Controllers", detail: "Argo CD·KEDA·External Secrets Operator·AWS Load Balancer Controller·metrics-server·CoreDNS를 **platform 네임스페이스** 하나로 모아 관리합니다." },
+  { title: "VPC Endpoints & Client VPN", detail: "SQS·Secrets Manager·ECR용 **Interface Endpoint**와 S3 **Gateway Endpoint**로 AWS API 트래픽을 NAT 없이 오가게 하고, 운영자는 **Client VPN**으로 접근합니다." },
 ];
 
-const aiPipelineLayers: EvidenceLayer[] = [
-  {
-    title: "Diarization & Transcription Trigger",
-    detail: "audio-preprocess 큐 깊이에 따라 GPU Worker가 0에서 스케일업돼, pyannote 화자분리와 Whisper 전사를 큐 기반으로 실행합니다.",
-    code: { caption: "k8s/gpu-worker/keda-scaledobject.yaml", content: `apiVersion: keda.sh/v1alpha1
-kind: ScaledObject
-metadata:
-  name: gpu-worker
-spec:
-  scaleTargetRef:
-    name: gpu-worker
-  minReplicaCount: 0
-  maxReplicaCount: 6
-  triggers:
-    - type: aws-sqs-queue
-      metadata:
-        queueURL: https://sqs.ap-northeast-2.amazonaws.com/xxxx/gpu-inference
-        queueLength: "1"` },
-  },
-  {
-    title: "Model Cache (EFS)",
-    detail: "pyannote·Whisper 모델을 EFS에 미리 캐시해, GPU Pod가 뜰 때마다 HuggingFace에서 다시 받지 않도록 합니다.",
-    code: { caption: "k8s/gpu-worker/pvc-model-cache.yaml", content: `apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: model-cache
-spec:
-  accessModes: [ReadWriteMany]
-  storageClassName: efs-ap
-  resources:
-    requests: { storage: 50Gi }
----
-env:
-  - name: HF_HOME
-    value: /mnt/model-cache` },
-  },
-  {
-    title: "RAG + Report Generation",
-    detail: "RAG Source 버킷에 임베딩해 둔 참고자료를 근거로, Bedrock Claude Haiku 4.5가 언어표본분석 지표와 SOAP 노트 초안을 생성합니다.",
-    code: { caption: "services/report_generator.py", content: `def generate_report(transcript: str, patient_id: str) -> Report:
-    context = rag.retrieve(query=transcript, top_k=6)
-    response = bedrock.invoke_model(
-        modelId="anthropic.claude-haiku-4-5-v1:0",
-        body=build_soap_prompt(transcript, context),
-    )
-    return Report.parse(response)` },
-  },
-  {
-    title: "LLM Observability",
-    detail: "Bedrock 호출마다 OpenTelemetry span을 열어 Arize Phoenix로 보내, 프롬프트·응답·지연시간을 인프라 메트릭과 분리해 추적합니다.",
-    code: { caption: "services/tracing.py", content: `from opentelemetry import trace
-from openinference.instrumentation.bedrock import BedrockInstrumentor
-
-BedrockInstrumentor().instrument(tracer_provider=phoenix_tracer_provider)
-
-with trace.get_tracer(__name__).start_as_current_span("generate_report"):
-    report = generate_report(transcript, patient_id)` },
-  },
+const aiPipelineLayers: LayerCard[] = [
+  { title: "Diarization & Transcription Trigger", detail: "**audio-preprocess 큐 깊이**에 따라 GPU Worker가 0에서 스케일업돼, pyannote 화자분리와 Whisper 전사를 큐 기반으로 실행합니다." },
+  { title: "Model Cache (EFS)", detail: "pyannote·Whisper 모델을 **EFS에 미리 캐시**해, GPU Pod가 뜰 때마다 HuggingFace에서 다시 받지 않도록 합니다." },
+  { title: "RAG + Report Generation", detail: "RAG Source 버킷에 임베딩해 둔 참고자료를 근거로, **Bedrock Claude Haiku 4.5**가 언어표본분석 지표와 SOAP 노트 초안을 생성합니다." },
+  { title: "LLM Observability", detail: "Bedrock 호출마다 OpenTelemetry span을 열어 **Arize Phoenix**로 보내, 프롬프트·응답·지연시간을 인프라 메트릭과 분리해 추적합니다." },
 ];
 
 const dockvizStack = [
@@ -358,132 +85,15 @@ const dockvizStack = [
   { label: "GitHub Actions", icon: "/images/icons/github-actions.svg" },
 ];
 
-const dockvizPillars: EvidenceLayer[] = [
-  {
-    title: "CLI Entry",
-    detail: "Cobra 기반 CLI가 --demo·--host·--version 플래그를 받아, 데몬 연결 여부와 무관하게 같은 진입점에서 동작을 분기합니다.",
-    code: { caption: "cmd/root.go", content: `var rootCmd = &cobra.Command{
-	Use: "dockviz",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return tui.Start(tui.StartOptions{
-			Demo:         demoMode,
-			Host:         dockerHost,
-			Version:      cmd.Version,
-			ComposeFiles: composeFiles,
-		})
-	},
-}` },
-  },
-  {
-    title: "Client Interface",
-    detail: "실제 Docker SDK 클라이언트와 데모 클라이언트가 동일한 DockerClient 인터페이스를 구현해, 데몬 없이도 TUI 전체를 개발·검증할 수 있습니다.",
-    code: { caption: "internal/docker/interface.go", content: `type DockerClient interface {
-	ListContainers() ([]ContainerInfo, error)
-	ListImages() ([]ImageInfo, error)
-	FetchStats(id string) (cpu float64, memMB float64, err error)
-	DiskUsage() (DiskUsageInfo, error)
-	StreamEvents(ctx context.Context) <-chan EventInfo
-	// ...PruneImages, PruneVolumes, StreamLogs, Close 등
-}
-// Client(실제 daemon)와 DemoClient가 이 인터페이스를 동일하게 구현합니다.` },
-  },
-  {
-    title: "TUI Runtime",
-    detail: "Bubble Tea의 Model-Update-View 구조로 Containers·Images·Problems·Disk Usage 4개 화면의 상태 전이와 렌더링을 분리했습니다.",
-    code: { caption: "internal/tui/update.go", content: `func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
-		return m, nil
-	case tickMsg:
-		return m, tea.Batch(fetchDataCmd(m.docker), tickCmd())
-	// ...Containers/Images/Problems/Disk Usage 케이스는 생략
-	}
-}` },
-  },
-  {
-    title: "Problems Engine",
-    detail: "Docker 이벤트 스트림과 최근 CPU/MEM 이력을 결합해 OOM·재시작 루프·메모리 증가 등 신호를 심각도(Info/Warning/Critical)별로 분류합니다.",
-    code: { caption: "internal/tui/problems.go", content: `func cpuSeverity(values []float64) string {
-	if len(values) < 3 {
-		return ""
-	}
-	avg := mean(lastValues(values, 5))
-	switch {
-	case avg >= 95:
-		return severityCritical
-	case avg >= 80:
-		return severityWarning
-	case avg >= 60:
-		return severityInfo
-	default:
-		return ""
-	}
-}` },
-  },
-  {
-    title: "Disk Usage Engine",
-    detail: "system/df API와 Windows Docker Desktop VHDX 로컬 측정을 함께 읽어, Docker가 회수 가능하다고 보는 공간과 host 디스크에 남은 공간을 분리해서 보여줍니다.",
-    code: { caption: "internal/docker/hoststorage_windows.go", content: `func detectDockerDesktopHostStorage(host string) HostStorageInfo {
-	info := HostStorageInfo{Label: "Docker Desktop VHDX"}
-	for _, path := range dockerDesktopVHDXPaths(os.Getenv("LOCALAPPDATA"), os.Getenv("USERPROFILE")) {
-		allocated, _ := fileAllocatedBytes(path)
-		info.AllocatedMB = bytesToMB(int64(allocated))
-		info.HostFreeMB, _ = freeSpaceMB(path)
-		info.Available = true
-		return info
-	}
-	return info
-}` },
-  },
-  {
-    title: "Compose Context",
-    detail: "compose-go로 compose 파일을 파싱해 서비스 의존관계·네트워크·볼륨을 라이브 데몬 데이터 위에 읽기 전용으로 겹쳐, 변경 전 영향 범위를 보여줍니다.",
-    code: { caption: "internal/compose/context.go", content: `details := composeTypes.ConfigDetails{
-	WorkingDir:  workingDir,
-	ConfigFiles: composeTypes.ToConfigFiles(files),
-	Environment: composeTypes.NewMapping(os.Environ()),
-}
-project, err := loader.LoadWithContext(ctx, details)` },
-  },
-  {
-    title: "Distribution",
-    detail: "GitHub Actions가 linux·windows·darwin × amd64·arm64 6개 조합으로 크로스컴파일한 바이너리를 PyPI wheel·Debian 패키지·GitHub Releases로 함께 배포합니다.",
-    code: { caption: ".github/workflows/release.yml", content: `strategy:
-  matrix:
-    include:
-      - { goos: linux,   goarch: amd64 }
-      - { goos: linux,   goarch: arm64 }
-      - { goos: windows, goarch: amd64, ext: ".exe" }
-      - { goos: windows, goarch: arm64, ext: ".exe" }
-      - { goos: darwin,  goarch: amd64 }
-      - { goos: darwin,  goarch: arm64 }
-
-- run: |
-    GOOS=\${{ matrix.goos }} GOARCH=\${{ matrix.goarch }} \\
-    go build -o dockviz-\${{ matrix.goos }}-\${{ matrix.goarch }}\${{ matrix.ext }} .` },
-  },
-  {
-    title: "Concurrency",
-    detail: "오픈소스인 Bubble Tea가 제공하는 비동기 tea.Cmd 모델을 그대로 활용해, 컨테이너·이미지 조회와 컨테이너별 CPU/MEM stats 조회를 goroutine으로 병렬 실행합니다. 비용이 큰 system/df 호출은 Disk Usage 탭이 열려 있을 때만 실행되도록 제한해 기본 새로고침 주기의 부담을 줄였습니다.",
-    code: { caption: "internal/tui/model.go", content: `var wg sync.WaitGroup
-wg.Add(2)
-go func() { defer wg.Done(); containers, cErr = dc.ListContainers() }()
-go func() { defer wg.Done(); images, iErr = dc.ListImages() }()
-wg.Wait()
-
-for i, c := range containers {
-	if c.Status != "running" {
-		continue
-	}
-	go func() {
-		cpu, mem, _ := dc.FetchStats(c.ID)
-		statsMu.Lock()
-		containers[i].CPUPerc, containers[i].MemMB = cpu, mem
-		statsMu.Unlock()
-	}()
-}` },
-  },
+const dockvizPillars: LayerCard[] = [
+  { title: "CLI Entry", detail: "**Cobra** 기반 CLI가 --demo·--host·--version 플래그를 받아, 데몬 연결 여부와 무관하게 같은 진입점에서 동작을 분기합니다." },
+  { title: "Client Interface", detail: "실제 Docker SDK 클라이언트와 데모 클라이언트가 동일한 **DockerClient 인터페이스**를 구현해, 데몬 없이도 TUI 전체를 개발·검증할 수 있습니다." },
+  { title: "TUI Runtime", detail: "**Bubble Tea**의 Model-Update-View 구조로 Containers·Images·Problems·Disk Usage 4개 화면의 상태 전이와 렌더링을 분리했습니다." },
+  { title: "Problems Engine", detail: "Docker 이벤트 스트림과 최근 CPU/MEM 이력을 결합해 OOM·재시작 루프·메모리 증가 등 신호를 **심각도(Info/Warning/Critical)별**로 분류합니다." },
+  { title: "Disk Usage Engine", detail: "system/df API와 **Windows Docker Desktop VHDX** 로컬 측정을 함께 읽어, Docker가 회수 가능하다고 보는 공간과 host 디스크에 남은 공간을 분리해서 보여줍니다." },
+  { title: "Compose Context", detail: "**compose-go**로 compose 파일을 파싱해 서비스 의존관계·네트워크·볼륨을 라이브 데몬 데이터 위에 읽기 전용으로 겹쳐, 변경 전 영향 범위를 보여줍니다." },
+  { title: "Distribution", detail: "**GitHub Actions**가 linux·windows·darwin × amd64·arm64 6개 조합으로 크로스컴파일한 바이너리를 PyPI wheel·Debian 패키지·GitHub Releases로 함께 배포합니다." },
+  { title: "Concurrency", detail: "오픈소스인 Bubble Tea가 제공하는 비동기 tea.Cmd 모델을 그대로 활용해, 컨테이너·이미지 조회와 컨테이너별 CPU/MEM stats 조회를 **goroutine으로 병렬 실행**합니다. 비용이 큰 system/df 호출은 Disk Usage 탭이 열려 있을 때만 실행되도록 제한해 기본 새로고침 주기의 부담을 줄였습니다." },
 ];
 
 const dockvizResponsibilities = [
@@ -530,14 +140,13 @@ function DockvizFigures() {
   );
 }
 
-function EvidenceLayerGrid({ layers }: { layers: EvidenceLayer[] }) {
+function LayerGrid({ layers }: { layers: LayerCard[] }) {
   return (
-    <div className="evidence-grid">
+    <div className="cloud-architecture-grid">
       {layers.map((layer) => (
-        <div className="evidence-card" key={layer.title}>
+        <div className="cloud-architecture-card" key={layer.title}>
           <h4>{layer.title}</h4>
-          <p className="evidence-detail">{layer.detail}</p>
-          <EvidenceCode code={layer.code} />
+          <p>{highlight(layer.detail)}</p>
         </div>
       ))}
     </div>
@@ -630,7 +239,7 @@ export function InfraPortfolio() {
         <SectionTitle eyebrow="01 · Cloud Architecture" title="전체 클라우드 아키텍처" />
         <p className="architecture-overview-lead">음성 업로드 → 화자분리·전사(pyannote·Whisper) → RAG 기반 LLM 리포트 생성까지 이어지는 비동기 AI 파이프라인을 안정적으로 운영하기 위해 네트워크·컴퓨트·AI/ML·데이터·메시징·보안·관측성·배포 8개 계층을 독립적으로 설계했습니다. SQS로 계층 사이 결합도를 낮춰 트래픽이 몰려도 각 계층을 따로 확장하고, Terraform·Kustomize·Argo CD로 dev·prod 환경을 같은 코드 기반에서 재현할 수 있게 했습니다.</p>
         <FullArchitectureFigure />
-        <EvidenceLayerGrid layers={cloudLayers} />
+        <LayerGrid layers={cloudLayers} />
       </section>
 
       <section className="project-sheet">
@@ -641,19 +250,19 @@ export function InfraPortfolio() {
       <section className="project-sheet">
         <SectionTitle eyebrow="03 · Cluster Configuration" title="EKS 클러스터를 실제로 구성한 방식" />
         <p className="architecture-overview-lead">2개 AZ에 걸친 VPC 레이아웃, 시스템/워크로드 노드 이원화, platform 네임스페이스의 공통 컨트롤러, NAT를 거치지 않는 VPC Endpoint까지 — EKS 클러스터를 이루는 네 가지 결정을 실제 설정으로 보여드립니다.</p>
-        <EvidenceLayerGrid layers={clusterLayers} />
+        <LayerGrid layers={clusterLayers} />
       </section>
 
       <section className="project-sheet">
         <SectionTitle eyebrow="04 · AI Pipeline" title="큐 트리거부터 LLM 추적까지, AI 파이프라인 구현" />
         <p className="architecture-overview-lead">음성이 큐에 쌓이는 순간부터 화자분리·전사·리포트 생성·LLM 호출 추적까지, AI 파이프라인을 이루는 네 단계를 실제 설정과 코드로 보여드립니다.</p>
-        <EvidenceLayerGrid layers={aiPipelineLayers} />
+        <LayerGrid layers={aiPipelineLayers} />
       </section>
 
       <section className="project-sheet">
         <SectionTitle eyebrow="05 · Data Security" title="PHI와 사용자 데이터를 분리한 보안 구조" />
         <p className="architecture-overview-lead">임상 녹음·전사본 같은 PHI와 계정·프로필 같은 사용자 식별정보를 같은 신뢰 경계에 두지 않기 위해, Application VPC와 별도로 Patient Data VPC·User Data VPC를 두고 Transit Gateway isolated route tables로 접근 경로 자체를 제한했습니다. VPC·암호화 키·시크릿을 도메인별로 모두 나눠, 한 도메인이 뚫려도 다른 도메인으로 번지지 않도록 설계했습니다.</p>
-        <EvidenceLayerGrid layers={dataSecurityLayers} />
+        <LayerGrid layers={dataSecurityLayers} />
       </section>
 
       <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="06 · Key Improvements" title="숫자로 증명한 핵심 개선 3가지" /><div className="troubleshooting-grid">{troubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
@@ -672,7 +281,7 @@ export function InfraPortfolio() {
       <section className="project-sheet">
         <SectionTitle eyebrow="01 · System Design" title="두 가지 질문에 답하는 구조로 설계" />
         <p className="architecture-overview-lead">dockviz는 &ldquo;지금 컨테이너에 문제가 있는가&rdquo;와 &ldquo;무엇이 디스크를 차지하고, 무엇을 지울 수 있는가&rdquo; 두 질문에 답하는 데 집중합니다. Docker SDK로 데몬과 직접 통신하고, 데몬 없이도 개발·검증할 수 있도록 데모 클라이언트를 같은 인터페이스로 묶었습니다.</p>
-        <EvidenceLayerGrid layers={dockvizPillars} />
+        <LayerGrid layers={dockvizPillars} />
       </section>
 
       <section className="project-sheet">
