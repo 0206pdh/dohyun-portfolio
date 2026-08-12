@@ -187,3 +187,20 @@ a { color: inherit; }
   .troubleshooting-text p { font-size: 12.5px; }
   .evidence-code { font-size: 10.5px; padding: 13px 14px; }
 }
+@media print {
+  @page { margin: 14mm 12mm; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
+  body { font-size: 12px; }
+  .portfolio-shell { width: 100%; padding: 0; }
+  .project-sheet, .profile-sheet, .troubleshooting-card, .cloud-architecture-card,
+  .metric-card, .architecture-figures figure, .stack-row, .evidence-code-wrap,
+  .evidence-table-wrap, .troubleshooting-heading, .verdict-block, .quote-block {
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  .project-sheet { box-shadow: none; border: 1px solid var(--line); }
+  h1, h2, h3, h4, .section-title, .project-topline, .troubleshooting-heading {
+    break-after: avoid; page-break-after: avoid;
+  }
+  .troubleshooting-grid { gap: 14px; }
+  .architecture-image img, .stack-chip img { break-inside: avoid; }
+}

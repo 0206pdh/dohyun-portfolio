@@ -17,6 +17,10 @@ const responsibilities = [
   "Kustomize base + dev/prod overlay와 Argo CD Application으로 선언적 배포 흐름 구성",
   "API·CPU Worker·GPU Worker·Batch를 Namespace, NodePool, taint/toleration, resource request로 분리",
   "SQS queue depth를 기준으로 KEDA가 Pod를 확장하고, Karpenter가 CPU/GPU NodeClaim을 프로비저닝하도록 연결",
+  "utterai-prod-vpc(10.20.0.0/16)를 ap-northeast-2a/2c 2개 AZ에 걸쳐 Public·Private App·Private Pod 3계층 서브넷으로 나누고, EKS Data Plane을 두 AZ 모두에 배치해 AZ 장애에도 워크로드가 유지되도록 구성",
+  "VPC CNI Custom Networking으로 Pod 전용 Secondary CIDR(100.64.0.0/17)을 ENIConfig에 연결해 Private Pod Subnet을 노드 서브넷과 분리하고, Prefix Delegation으로 노드당 파드 IP 고갈을 방지",
+  "시스템 컴포넌트는 Managed Node Group, 애플리케이션 워크로드는 Karpenter 프로비저닝 노드로 나누고, Argo CD·KEDA·External Secrets Operator·AWS Load Balancer Controller·metrics-server·CoreDNS를 platform 네임스페이스로 모아 클러스터 공통 기능을 운영",
+  "SQS·Secrets Manager·ECR용 Interface VPC Endpoint와 S3 Gateway Endpoint를 붙여 AWS API 트래픽이 NAT Gateway를 거치지 않고 프라이빗하게 오가도록 구성하고, 운영자 접근은 AWS Client VPN으로 배스천 없이 처리",
 ];
 
 type CodeSnippet = { caption: string; content: string };
@@ -46,6 +50,7 @@ const troubleshooting: TroubleshootingItem[] = [
 const cloudLayers = [
   { title: "Network", detail: "VPC의 Public/Private Subnet과 NAT Gateway로 외부 트래픽과 내부 워크로드를 분리하고, Secondary CIDR·VPC CNI Custom Networking으로 Pod IP 대역을 별도 관리합니다." },
   { title: "Compute", detail: "EKS 위에 API·CPU Worker·GPU Worker·Batch를 NodePool 단위로 나누고, Karpenter가 워크로드 특성에 맞는 노드를 온디맨드로 프로비저닝합니다." },
+  { title: "AI / ML Pipeline", detail: "GPU Worker가 pyannote로 화자를 분리하고 Whisper로 전사한 뒤, RAG Source(S3)에 임베딩해 둔 논문·참고자료를 근거로 Bedrock Claude Haiku 4.5가 언어표본분석 지표와 SOAP 노트 초안을 생성합니다. LLM 호출 이력은 Arize Phoenix로 별도 추적합니다." },
   { title: "Data", detail: "Aurora/RDS가 정형 데이터를, ElastiCache Redis가 캐시·세션을, S3가 오디오·리포트 파일을 맡아 컴퓨트 계층과 상태를 분리했습니다." },
   { title: "Messaging", detail: "SQS 큐가 API와 Worker 사이를 비동기로 연결해, 분석 요청이 몰려도 API 응답성과 GPU 자원 사용을 독립적으로 조절할 수 있습니다." },
   { title: "Security", detail: "네임스페이스별 IRSA·ESO로 권한과 시크릿을 최소 범위로 분리하고, NetworkPolicy default-deny와 WAF·Private 엔드포인트로 접근 경로를 통제합니다." },
@@ -163,7 +168,7 @@ function EksClusterFigure() {
   return (
     <div className="architecture-figures">
       <figure>
-        <figcaption>EKS Cluster · VPC, subnet, node provisioning, platform controllers</figcaption>
+        <figcaption>EKS Cluster · 2-AZ VPC/subnet 구성, Managed Node Group + Karpenter 이원화, VPC CNI Custom Networking, platform 컨트롤러 네임스페이스</figcaption>
         <div className="architecture-image">
           <Image src="/images/eks-cluster-architecture.png" alt="UtterAI EKS 클러스터 아키텍처" width={2100} height={1020} />
         </div>
@@ -226,7 +231,7 @@ export function InfraPortfolio() {
 
       <section className="project-sheet">
         <SectionTitle eyebrow="01 · Cloud Architecture" title="전체 클라우드 아키텍처" />
-        <p className="architecture-overview-lead">음성 업로드부터 CPU/GPU 분석, 리포트 생성까지 이어지는 비동기 파이프라인을 안정적으로 운영하기 위해 네트워크·컴퓨트·데이터·메시징·보안·관측성·배포 7개 계층을 독립적으로 설계했습니다. SQS로 계층 사이 결합도를 낮춰 트래픽이 몰려도 각 계층을 따로 확장하고, Terraform·Kustomize·Argo CD로 dev·prod 환경을 같은 코드 기반에서 재현할 수 있게 했습니다.</p>
+        <p className="architecture-overview-lead">음성 업로드 → 화자분리·전사(pyannote·Whisper) → RAG 기반 LLM 리포트 생성까지 이어지는 비동기 AI 파이프라인을 안정적으로 운영하기 위해 네트워크·컴퓨트·AI/ML·데이터·메시징·보안·관측성·배포 8개 계층을 독립적으로 설계했습니다. SQS로 계층 사이 결합도를 낮춰 트래픽이 몰려도 각 계층을 따로 확장하고, Terraform·Kustomize·Argo CD로 dev·prod 환경을 같은 코드 기반에서 재현할 수 있게 했습니다.</p>
         <FullArchitectureFigure />
         <CloudArchitectureOverview />
       </section>
