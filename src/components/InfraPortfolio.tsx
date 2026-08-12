@@ -51,11 +51,18 @@ const cloudLayers = [
   { title: "Network", detail: "VPC의 Public/Private Subnet과 NAT Gateway로 외부 트래픽과 내부 워크로드를 분리하고, Secondary CIDR·VPC CNI Custom Networking으로 Pod IP 대역을 별도 관리합니다." },
   { title: "Compute", detail: "EKS 위에 API·CPU Worker·GPU Worker·Batch를 NodePool 단위로 나누고, Karpenter가 워크로드 특성에 맞는 노드를 온디맨드로 프로비저닝합니다." },
   { title: "AI / ML Pipeline", detail: "GPU Worker가 pyannote로 화자를 분리하고 Whisper로 전사한 뒤, RAG Source(S3)에 임베딩해 둔 논문·참고자료를 근거로 Bedrock Claude Haiku 4.5가 언어표본분석 지표와 SOAP 노트 초안을 생성합니다. LLM 호출 이력은 Arize Phoenix로 별도 추적합니다." },
-  { title: "Data", detail: "Aurora/RDS가 정형 데이터를, ElastiCache Redis가 캐시·세션을, S3가 오디오·리포트 파일을 맡아 컴퓨트 계층과 상태를 분리했습니다." },
+  { title: "Data", detail: "RDS Multi-AZ가 정형 데이터를, ElastiCache Redis가 캐시·세션을, S3가 오디오·리포트 파일을 맡아 컴퓨트 계층과 상태를 분리했습니다." },
   { title: "Messaging", detail: "SQS 큐가 API와 Worker 사이를 비동기로 연결해, 분석 요청이 몰려도 API 응답성과 GPU 자원 사용을 독립적으로 조절할 수 있습니다." },
   { title: "Security", detail: "네임스페이스별 IRSA·ESO로 권한과 시크릿을 최소 범위로 분리하고, NetworkPolicy default-deny와 WAF·Private 엔드포인트로 접근 경로를 통제합니다." },
   { title: "Observability", detail: "Prometheus·Grafana·OpenTelemetry·Phoenix를 연결해 노드·큐·워커·trace를 함께 확인하고, 대시보드와 알림으로 스케일링·장애 신호를 조기에 포착합니다." },
   { title: "Delivery", detail: "Terraform이 VPC부터 EKS·RDS·SQS까지 기반 인프라를, Argo CD + Kustomize overlay가 애플리케이션 배포를 코드화해 dev/prod를 같은 원칙으로 운영합니다." },
+];
+
+const dataSecurityLayers = [
+  { title: "Domain Segmentation", detail: "PHI(임상 데이터)를 다루는 Patient Data VPC(10.30.0.0/16)와 사용자 식별정보를 다루는 User Data VPC(10.40.0.0/16)를 Application VPC(10.20.0.0/16)와 별도로 두어, 데이터 성격이 다른 두 도메인을 물리적으로 다른 VPC에 격리했습니다." },
+  { title: "Network Isolation", detail: "Transit Gateway isolated route tables로 Application VPC → Patient/User Data VPC 방향 접근만 열어두고, Patient Data VPC와 User Data VPC 사이에는 직접 라우팅 경로를 두지 않아 한쪽이 뚫려도 다른 도메인으로 옆으로 번지지 않도록 차단했습니다." },
+  { title: "Encryption & Secrets", detail: "도메인별 KMS CMK(Patient CMK·User CMK)로 각 RDS를 분리 암호화하고, Secrets Manager에 Patient secret·User secret을 나눠 저장해 External Secrets Operator가 IRSA 권한으로 필요한 네임스페이스에만 동기화하도록 했습니다." },
+  { title: "Availability & Storage", detail: "Patient DB·User DB 모두 RDS Multi-AZ(Primary/Standby)로 동기 복제하고, User Data VPC의 ElastiCache Redis도 Primary/Replica로 이중화했습니다. Application Data·RAG Source 등 S3 버킷은 모두 Private + SSE-S3 + 퍼블릭 액세스 차단으로 운영합니다." },
 ];
 
 const dockvizStack = [
@@ -138,6 +145,19 @@ function CloudArchitectureOverview() {
   return (
     <div className="cloud-architecture-grid">
       {cloudLayers.map((layer) => (
+        <div className="cloud-architecture-card" key={layer.title}>
+          <h4>{layer.title}</h4>
+          <p>{layer.detail}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DataSecurityOverview() {
+  return (
+    <div className="cloud-architecture-grid">
+      {dataSecurityLayers.map((layer) => (
         <div className="cloud-architecture-card" key={layer.title}>
           <h4>{layer.title}</h4>
           <p>{layer.detail}</p>
@@ -241,7 +261,13 @@ export function InfraPortfolio() {
         <div className="role-layout"><div><h3 className="subheading">주요업무 및 상세 역할</h3><ul className="check-list">{responsibilities.map((item) => <li key={item}>{item}</li>)}</ul></div><EksClusterFigure /></div>
       </section>
 
-      <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="03 · Key Improvements" title="숫자로 증명한 핵심 개선 3가지" /><div className="troubleshooting-grid">{troubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
+      <section className="project-sheet">
+        <SectionTitle eyebrow="03 · Data Security" title="PHI와 사용자 데이터를 분리한 보안 구조" />
+        <p className="architecture-overview-lead">임상 녹음·전사본 같은 PHI와 계정·프로필 같은 사용자 식별정보를 같은 신뢰 경계에 두지 않기 위해, Application VPC와 별도로 Patient Data VPC·User Data VPC를 두고 Transit Gateway isolated route tables로 접근 경로 자체를 제한했습니다. VPC·암호화 키·시크릿을 도메인별로 모두 나눠, 한 도메인이 뚫려도 다른 도메인으로 번지지 않도록 설계했습니다.</p>
+        <DataSecurityOverview />
+      </section>
+
+      <section className="project-sheet troubleshooting-sheet"><SectionTitle eyebrow="04 · Key Improvements" title="숫자로 증명한 핵심 개선 3가지" /><div className="troubleshooting-grid">{troubleshooting.map((item) => <TroubleshootingCard key={item.number} item={item} />)}</div></section>
 
       <section className="project-sheet hero-sheet">
         <div className="project-topline">
